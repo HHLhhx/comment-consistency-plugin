@@ -5,34 +5,34 @@ import com.intellij.codeInsight.daemon.LineMarkerProvider;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
-import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.popup.ComponentPopupBuilder;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.IconLoader;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.ui.awt.RelativePoint;
+import com.intellij.ui.components.JBLabel;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.Arrays;
+import java.awt.*;
+import java.awt.event.MouseEvent;
+import java.util.Map;
 
 public class MethodCommentLineMarkerProvider implements LineMarkerProvider {
+
     @Override
     public @Nullable LineMarkerInfo<?> getLineMarkerInfo(@NotNull PsiElement psiElement) {
-        // 始终找到最近的 PsiMethod（如果没有则返回）
         PsiMethod method = PsiTreeUtil.getParentOfType(psiElement, PsiMethod.class, false);
         if (method == null) {
             return null;
         }
 
-        // 只在方法名标识符上显示图标，避免重复
         PsiElement nameIdentifier = method.getNameIdentifier();
         if (nameIdentifier == null || !nameIdentifier.equals(psiElement)) {
             return null;
@@ -44,69 +44,138 @@ public class MethodCommentLineMarkerProvider implements LineMarkerProvider {
                 nameIdentifier.getTextRange(),
                 icon,
                 psi -> "生成/更新注释",
-                (e, elt) -> onIconClick(method),
+                (e, elt) -> onIconClick(e, method),
                 GutterIconRenderer.Alignment.RIGHT
         );
     }
 
-    private void onIconClick(PsiMethod method) {
+    private void onIconClick(MouseEvent e, PsiMethod method) {
         Project project = method.getProject();
 
-        SmartPsiElementPointer<PsiMethod> methodPointer =
-                SmartPointerManager.getInstance(project).createSmartPsiElementPointer(method);
+        SmartPointerManager spm = SmartPointerManager.getInstance(project);
+        SmartPsiElementPointer<PsiMethod> methodPointer = spm.createSmartPsiElementPointer(method);
 
-        //TODO
-        String[] options = {"生成注释", "更新注释"};
+        JPanel contentPanel = new JPanel(new BorderLayout());
 
-        JBPopup popup = JBPopupFactory.getInstance()
-                .createPopupChooserBuilder(Arrays.asList(options))
-                .setTitle("生成注释")
-                .setItemChosenCallback(selected -> ApplicationManager.getApplication().executeOnPooledThread(() -> {
-                    String methodText = ReadAction.compute(() -> {
-                        PsiMethod m = methodPointer.getElement();
-                        return m == null ? null : m.getText();
-                    });
-                    if (methodText == null) {
+        //注释语言
+        JPanel languagePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        languagePanel.add(new JBLabel("Choose language:"));
+        JRadioButton rbChinese = new JRadioButton("Chinese", true);
+        JRadioButton rbEnglish = new JRadioButton("English");
+        ButtonGroup languageGroup = new ButtonGroup();
+        languageGroup.add(rbChinese);
+        languageGroup.add(rbEnglish);
+        languagePanel.add(rbChinese);
+        languagePanel.add(rbEnglish);
+
+        //注释风格
+        JPanel stylePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JCheckBox javadocCb = new JCheckBox("Javadoc", true);
+        stylePanel.add(javadocCb);
+
+        JPanel optionsPanel = new JPanel();
+        optionsPanel.setLayout(new BoxLayout(optionsPanel, BoxLayout.Y_AXIS));
+        optionsPanel.add(languagePanel);
+        optionsPanel.add(stylePanel);
+
+        //注释按钮
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton ok = new JButton("确定");
+        JButton cancel = new JButton("取消");
+        btnPanel.add(ok);
+        btnPanel.add(cancel);
+
+        contentPanel.add(optionsPanel, BorderLayout.NORTH);
+        contentPanel.add(btnPanel, BorderLayout.SOUTH);
+
+        ComponentPopupBuilder builder = JBPopupFactory.getInstance().createComponentPopupBuilder(contentPanel, null);
+        builder.setTitle("生成/更新注释");
+        builder.setResizable(false);
+        builder.setMovable(true);
+        JBPopup popup = builder.createPopup();
+
+        cancel.addActionListener(a -> popup.cancel());
+        ok.addActionListener(a -> {
+            String language = rbChinese.isSelected() ? "Chinese" : "English";
+            String style = javadocCb.isSelected() ? "Javadoc" : "";
+            Map<String, String> options = Map.of(
+                    "language", language,
+                    "style", style
+            );
+
+            popup.cancel();
+
+            ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                MethodData data = ReadAction.compute(() -> {
+                    PsiMethod psiMethod = methodPointer.getElement();
+                    if (psiMethod == null) {
+                        return null;
+                    }
+
+                    String signature = psiMethod.getName() + method.getParameterList().getText();
+                    String body = psiMethod.getBody() != null
+                            ? psiMethod.getBody().getText() : "";
+                    String existingComment = psiMethod.getDocComment() != null
+                            ? psiMethod.getDocComment().getText() : "";
+
+                    return new MethodData(signature, body, existingComment);
+                });
+
+                if (data == null) {
+                    return;
+                }
+
+                String generated = CommentGeneratorClient.generateComment(data, options);
+
+                if (generated == null || generated.isBlank()) {
+                    return;
+                }
+
+                String processed = processComment(generated);
+
+                WriteCommandAction.runWriteCommandAction(project, () -> {
+                    PsiMethod psiMethod = methodPointer.getElement();
+                    if (psiMethod == null) {
                         return;
                     }
 
-                    String generatedComment = CommentGeneratorClient.generateComment(methodText, selected);
-                    if (generatedComment == null) {
-                        return;
+                    PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
+                    PsiDocComment newComment = factory.createDocCommentFromText(processed);
+
+                    PsiDocComment oldComment = psiMethod.getDocComment();
+                    if (oldComment != null && oldComment.isValid()) {
+                        oldComment.replace(newComment);
+                    } else {
+                        psiMethod.addBefore(newComment, psiMethod.getFirstChild());
                     }
+                });
+            });
+        });
 
-                    WriteCommandAction.runWriteCommandAction(project, () -> {
-                        PsiMethod m = methodPointer.getElement();
-                        if (m == null) {
-                            return;
-                        }
-                        PsiDocComment doc = m.getDocComment();
-                        PsiFile file = m.getContainingFile();
-                        Document document = PsiDocumentManager.getInstance(project).getDocument(file);
-                        if (document == null) {
-                            return;
-                        }
-                        PsiDocumentManager.getInstance(project).doPostponedOperationsAndUnblockDocument(document);
+        popup.show(new RelativePoint(e));
+    }
 
-                        if (doc != null) {
-                            // 更新注释
-                            TextRange range = doc.getTextRange();
-                            document.replaceString(range.getStartOffset(), range.getEndOffset(), generatedComment);
-                        } else {
-                            // 生成注释
-                            int methodStartOffset = m.getTextRange().getStartOffset();
-                            document.insertString(methodStartOffset, generatedComment + "\n");
-                        }
-                        PsiDocumentManager.getInstance(project).commitDocument(document);
-                    });
-                }))
-                .createPopup();
-
-        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
-        if (editor != null) {
-            popup.showInBestPositionFor(editor);
+    //TODO: 更加健壮的处理
+    private String processComment(String generated) {
+        String processed = generated.trim();
+        int idx = processed.indexOf("/**");
+        if (idx >= 0) {
+            processed = processed.substring(idx).trim();
+            if (processed.contains("*/")) {
+                processed = processed.substring(0, processed.indexOf("*/")).trim();
+            } else {
+                processed += "\n */";
+            }
         } else {
-            popup.showInFocusCenter();
+            String body = processed.replaceAll("\\r\\n", "\n").replaceAll("\\r", "\n");
+            String[] lines = body.split("\n");
+            StringBuilder sb = new StringBuilder("/**\n");
+            for (String line : lines) {
+                sb.append(" * ").append(line).append("\n");
+            }
+            sb.append(" */");
+            processed = sb.toString();
         }
+        return processed;
     }
 }
