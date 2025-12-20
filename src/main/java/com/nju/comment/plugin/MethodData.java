@@ -1,5 +1,8 @@
 package com.nju.comment.plugin;
 
+import lombok.Data;
+
+@Data
 public class MethodData {
     String signature;
     String body;
@@ -9,14 +12,5 @@ public class MethodData {
         this.signature = signature;
         this.body = body;
         this.existingComment = existingComment;
-    }
-
-    @Override
-    public String toString() {
-        return "MethodData{" +
-                "signature='" + signature + '\'' +
-                ", body='" + body + '\'' +
-                ", existingComment='" + existingComment + '\'' +
-                '}';
     }
 }

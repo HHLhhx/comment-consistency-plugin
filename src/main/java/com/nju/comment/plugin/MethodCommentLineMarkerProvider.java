@@ -16,6 +16,7 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
+import com.nju.comment.client.global.CommentGeneratorClient;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -131,13 +132,13 @@ public class MethodCommentLineMarkerProvider implements LineMarkerProvider {
                     return;
                 }
 
-                String processed = processComment(generated);
-
                 WriteCommandAction.runWriteCommandAction(project, () -> {
                     PsiMethod psiMethod = methodPointer.getElement();
                     if (psiMethod == null) {
                         return;
                     }
+
+                    String processed = processComment(generated, psiMethod);
 
                     PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
                     PsiDocComment newComment = factory.createDocCommentFromText(processed);
@@ -156,26 +157,45 @@ public class MethodCommentLineMarkerProvider implements LineMarkerProvider {
     }
 
     //TODO: 更加健壮的处理
-    private String processComment(String generated) {
-        String processed = generated.trim();
+    private String processComment(String generated, PsiMethod psiMethod) {
+        String sep = "\n";
+        PsiFile file = psiMethod.getContainingFile();
+        if (file != null) {
+            String fileText = file.getText();
+            if (fileText.contains("\r\n")) {
+                sep = "\r\n";
+            } else if (fileText.contains("\r")) {
+                sep = "\r";
+            }
+        }
+
+        String processed = generated == null ? "" : generated.trim();
+        // 统一所有已有分隔符为目标分隔符
+        processed = processed.replace("\r\n", sep).replace("\r", sep);
+
         int idx = processed.indexOf("/**");
         if (idx >= 0) {
             processed = processed.substring(idx).trim();
             if (processed.contains("*/")) {
-                processed = processed.substring(0, processed.indexOf("*/")).trim();
+                processed = processed.substring(0, processed.indexOf("*/") + 2).trim();
             } else {
-                processed += "\n */";
+                // 确保用统一分隔符并正确闭合
+                if (!processed.endsWith(sep)) {
+                    processed += sep;
+                }
+                processed += " */";
             }
         } else {
-            String body = processed.replaceAll("\\r\\n", "\n").replaceAll("\\r", "\n");
-            String[] lines = body.split("\n");
-            StringBuilder sb = new StringBuilder("/**\n");
+            String body = processed.replaceAll("\r\n", sep).replaceAll("\r", sep);
+            String[] lines = body.split("\n", -1); // 使用 LF 分割再在下面使用 sep 重建
+            StringBuilder sb = new StringBuilder("/**").append(sep);
             for (String line : lines) {
-                sb.append(" * ").append(line).append("\n");
+                sb.append(" * ").append(line).append(sep);
             }
             sb.append(" */");
             processed = sb.toString();
         }
+
         return processed;
     }
 }
