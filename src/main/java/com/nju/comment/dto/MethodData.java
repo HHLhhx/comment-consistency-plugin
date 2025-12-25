@@ -1,4 +1,4 @@
-package com.nju.comment.plugin;
+package com.nju.comment.dto;
 
 import lombok.Data;
 
@@ -8,7 +8,7 @@ public class MethodData {
     String body;
     String existingComment;
 
-    MethodData(String signature, String body, String existingComment) {
+    public MethodData(String signature, String body, String existingComment) {
         this.signature = signature;
         this.body = body;
         this.existingComment = existingComment;

@@ -1,32 +1,34 @@
 package com.nju.comment.client.global;
 
-import com.nju.comment.backend.dto.request.CommentRequest;
-import com.nju.comment.backend.dto.response.CommentResponse;
+import com.nju.comment.dto.request.CommentRequest;
+import com.nju.comment.dto.response.CommentResponse;
 import com.nju.comment.client.PluginCommentClient;
-import com.nju.comment.plugin.MethodData;
-import com.intellij.openapi.diagnostic.Logger;
+import com.nju.comment.dto.MethodData;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 public class CommentGeneratorClient {
 
     private static volatile PluginCommentClient client;
-    private static final Object lock = new Object();
+    private static final Object LOCK = new Object();
     private static final Duration TIMEOUT = Duration.ofSeconds(20);
-
-    private static final Logger LOG = Logger.getInstance(CommentGeneratorClient.class);
 
     public static void init(String baseUrl) {
         if (client != null) {
-            LOG.info("CommentGeneratorClient already initialized.");
+            log.info("CommentGeneratorClient 已完成初始化");
             return;
         }
-        synchronized (lock) {
-            if (client != null) return;
-            LOG.info("CommentGeneratorClient try to init");
+        synchronized (LOCK) {
+            if (client != null) {
+                log.info("CommentGeneratorClient 已完成初始化");
+                return;
+            }
+            log.info("CommentGeneratorClient 开始初始化");
             PluginCommentClient.Builder b = PluginCommentClient.builder();
             if (baseUrl != null && !baseUrl.isEmpty()) {
                 b.baseUrl(baseUrl);
@@ -37,16 +39,17 @@ public class CommentGeneratorClient {
                     .threadPoolSize(10)
                     .maxConcurrentRequests(20);
             client = b.build();
-            LOG.info("CommentGeneratorClient initialized");
+            log.info("CommentGeneratorClient 初始化成功");
         }
     }
 
     public static String generateComment(MethodData data, Map<String, String> options) {
         if (client == null) {
+            log.info("CommentGeneratorClient 未初始化，正在初始化默认配置");
             init(null);
         }
         try {
-            LOG.info("CommentGeneratorClient try to generate comment");
+            log.info("开始生成注释");
             CommentRequest req = CommentRequest.builder()
                     .code((data.getSignature() == null ? "" : data.getSignature())
                             + "\n" + (data.getBody() == null ? "" : data.getBody()))
@@ -61,14 +64,14 @@ public class CommentGeneratorClient {
             CompletableFuture<CommentResponse> future = client.generateComment(req);
             CommentResponse resp = future.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
             if (resp != null && resp.isSuccess()) {
-                LOG.info("Generated comment: \n" + resp.getGeneratedComment());
+                log.info("注释生成成功: {}", resp.getGeneratedComment());
                 return resp.getGeneratedComment();
             } else {
-                LOG.warn("Failed to generate comment");
+                log.warn("注释生成失败");
                 return null;
             }
         } catch (Exception e) {
-            LOG.warn("Failed to generate comment", e);
+            log.error("注释生成服务异常", e);
             return null;
         }
     }
@@ -78,10 +81,10 @@ public class CommentGeneratorClient {
             init(null);
         }
         try {
-            LOG.info("CommentGeneratorClient try to health");
+            log.info("开始健康检查");
             return client.health();
         } catch (Exception e) {
-            LOG.warn("Health check failed", e);
+            log.error("健康检查异常", e);
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             f.completeExceptionally(e);
             return f;
@@ -89,9 +92,9 @@ public class CommentGeneratorClient {
     }
 
     public static void shutdown() {
-        synchronized (lock) {
+        synchronized (LOCK) {
             if (client != null) {
-                LOG.info("Shutting down CommentGeneratorClient");
+                log.info("关闭 CommentGeneratorClient");
                 client.shutdown();
                 client = null;
             }

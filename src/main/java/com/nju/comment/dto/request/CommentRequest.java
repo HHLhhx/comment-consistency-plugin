@@ -1,4 +1,4 @@
-package com.nju.comment.backend.dto.request;
+package com.nju.comment.dto.request;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

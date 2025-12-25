@@ -4,9 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.nju.comment.backend.dto.request.CommentRequest;
-import com.nju.comment.backend.dto.response.CommentResponse;
-import com.intellij.openapi.diagnostic.Logger;
+import com.nju.comment.dto.request.CommentRequest;
+import com.nju.comment.dto.response.CommentResponse;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.net.URI;
@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.*;
 
+@Slf4j
 public class PluginCommentClient implements CommentClient {
 
     private final String baseUrl;
@@ -26,8 +27,6 @@ public class PluginCommentClient implements CommentClient {
     private final ExecutorService executor;
     private final Semaphore concurrentLimiter;
     private final Duration requestTimeout;
-
-    private static final Logger LOG = Logger.getInstance(PluginCommentClient.class.getName());
 
     private PluginCommentClient(Builder builder) {
         this.baseUrl = Objects.requireNonNull(builder.baseUrl, "url required");
@@ -50,15 +49,17 @@ public class PluginCommentClient implements CommentClient {
     }
 
     private <T> CompletableFuture<T> sendJson(String path, String method, String jsonBody, FunctionWithIOException<JsonNode, T> mapperFn) {
-        boolean acquired = false;
+        boolean acquired;
         try {
             acquired = concurrentLimiter.tryAcquire(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
+            log.error("请求被中断: {}", path, e);
             CompletableFuture<T> f = new CompletableFuture<>();
             f.completeExceptionally(e);
             return f;
         }
         if (!acquired) {
+            log.info("请求并发数达到上限，拒绝请求: {}", path);
             CompletableFuture<T> f = new CompletableFuture<>();
             f.completeExceptionally(new TimeoutException("Timeout acquiring semaphore for request"));
             return f;
@@ -77,41 +78,42 @@ public class PluginCommentClient implements CommentClient {
 
         HttpRequest request = reqBuilder.build();
 
-        CompletableFuture<T> future = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .orTimeout(requestTimeout.toMillis(), TimeUnit.MILLISECONDS)
                 .thenApplyAsync(response -> {
                     int statusCode = response.statusCode();
                     String body = response.body();
-                    System.out.println("response body: \n" + body);
+                    log.info("statusCode: {}, body: \n{}", statusCode, body);
                     try {
                         JsonNode root = objectMapper.readTree(body);
                         return mapperFn.apply(root);
                     } catch (Exception e) {
+                        log.error("response处理失败", e);
                         throw new CompletionException(e);
                     }
                 }, executor)
                 .whenComplete((res, ex) -> concurrentLimiter.release());
-
-        return future;
     }
 
     @Override
     public CompletableFuture<CommentResponse> generateComment(CommentRequest request) {
         try {
             String json = objectMapper.writeValueAsString(request);
-            System.out.println("generateComment request: \n" + json);
-            LOG.info("generateComment request: \n" + json);
+            log.info("注释生成请求: \n{}", json);
 
             return sendJson("/comments/generate", "POST", json, root -> {
                 boolean success = root.path("success").asBoolean(false);
                 if (!success) {
+                    log.warn("注释生成请求失败");
                     String msg = root.path("message").asText("Unknown error");
                     throw new CompletionException(new RuntimeException(msg));
                 }
+                log.info("注释生成请求成功");
                 JsonNode dataNode = root.path("data");
                 return objectMapper.treeToValue(dataNode, CommentResponse.class);
             });
         } catch (IOException e) {
+            log.error("注释生成请求序列化失败", e);
             CompletableFuture<CommentResponse> f = new CompletableFuture<>();
             f.completeExceptionally(e);
             return f;
@@ -137,12 +139,15 @@ public class PluginCommentClient implements CommentClient {
 
     @Override
     public void shutdown() {
+        log.info("关闭插件注释客户端线程池...");
         executor.shutdown();
         try {
             if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                log.info("线程池未能在规定时间内关闭，强制关闭中...");
                 executor.shutdownNow();
             }
         } catch (InterruptedException e) {
+            log.warn("中断异常等待线程池关闭", e);
             executor.shutdownNow();
             Thread.currentThread().interrupt();
         }

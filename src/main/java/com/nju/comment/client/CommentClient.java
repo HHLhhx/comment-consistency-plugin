@@ -1,7 +1,7 @@
 package com.nju.comment.client;
 
-import com.nju.comment.backend.dto.request.CommentRequest;
-import com.nju.comment.backend.dto.response.CommentResponse;
+import com.nju.comment.dto.request.CommentRequest;
+import com.nju.comment.dto.response.CommentResponse;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;

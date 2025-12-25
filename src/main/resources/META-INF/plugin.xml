@@ -25,7 +25,8 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <codeInsight.lineMarkerProvider language="JAVA" implementationClass="com.nju.comment.plugin.MethodCommentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider language="JAVA" implementationClass="com.nju.comment.extension.MethodCommentLineMarkerProvider"/>
+        <postStartupActivity implementation="com.nju.comment.PluginStartupActivity"/>
     </extensions>
 
     <actions>
