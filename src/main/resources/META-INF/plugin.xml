@@ -27,9 +27,20 @@
     <extensions defaultExtensionNs="com.intellij">
         <codeInsight.lineMarkerProvider language="JAVA" implementationClass="com.nju.comment.extension.MethodCommentLineMarkerProvider"/>
         <postStartupActivity implementation="com.nju.comment.PluginStartupActivity"/>
+        <toolWindow id="Model Selector"
+                    factoryClass="com.nju.comment.toolwindow.ModelSelectorToolWindowFactory"
+                    anchor="right"
+                    icon="/icons/comment.png"
+                    secondary="true"/>
     </extensions>
 
     <actions>
-
+        <action id="CommentGenerator.GenerateFromCaret"
+                class="com.nju.comment.action.GenerateCommentAction"
+                text="Update Comment"
+                description="Update method comment by backend">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut first-keystroke="ctrl alt G" keymap="$default"/>
+        </action>
     </actions>
 </idea-plugin>

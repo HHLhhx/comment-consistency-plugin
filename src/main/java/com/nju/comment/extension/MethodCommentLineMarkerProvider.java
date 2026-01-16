@@ -18,6 +18,7 @@ import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.dto.MethodData;
+import com.nju.comment.dto.MethodOptions;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -98,13 +99,6 @@ public class MethodCommentLineMarkerProvider implements LineMarkerProvider {
 
         cancel.addActionListener(a -> popup.cancel());
         ok.addActionListener(a -> {
-            String language = rbChinese.isSelected() ? "Chinese" : "English";
-            String style = javadocCb.isSelected() ? "Javadoc" : "";
-            Map<String, String> options = Map.of(
-                    "language", language,
-                    "style", style
-            );
-
             popup.cancel();
 
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
@@ -127,6 +121,7 @@ public class MethodCommentLineMarkerProvider implements LineMarkerProvider {
                     return;
                 }
 
+                MethodOptions options = new MethodOptions(CommentGeneratorClient.getSelectedModel());
                 String generated = CommentGeneratorClient.generateComment(data, options);
 
                 if (generated == null || generated.isBlank()) {

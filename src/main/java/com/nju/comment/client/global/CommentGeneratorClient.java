@@ -1,13 +1,15 @@
 package com.nju.comment.client.global;
 
+import com.nju.comment.dto.MethodOptions;
 import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.response.CommentResponse;
 import com.nju.comment.client.PluginCommentClient;
 import com.nju.comment.dto.MethodData;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
-import java.util.Map;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -17,6 +19,12 @@ public class CommentGeneratorClient {
     private static volatile PluginCommentClient client;
     private static final Object LOCK = new Object();
     private static final Duration TIMEOUT = Duration.ofSeconds(20);
+
+    @Getter
+    private static List<String> modelsList;
+
+    @Getter
+    private static volatile String selectedModel = null;
 
     public static void init(String baseUrl) {
         if (client != null) {
@@ -29,21 +37,21 @@ public class CommentGeneratorClient {
                 return;
             }
             log.info("CommentGeneratorClient 开始初始化");
-            PluginCommentClient.Builder b = PluginCommentClient.builder();
+            PluginCommentClient.Builder clientBuilder = PluginCommentClient.builder();
             if (baseUrl != null && !baseUrl.isEmpty()) {
-                b.baseUrl(baseUrl);
+                clientBuilder.baseUrl(baseUrl);
             } else {
-                b.baseUrl("http://localhost:8080/api");
+                clientBuilder.baseUrl("http://localhost:8080/api");
             }
-            b.requestTimeout(TIMEOUT)
+            clientBuilder.requestTimeout(TIMEOUT)
                     .threadPoolSize(10)
                     .maxConcurrentRequests(20);
-            client = b.build();
+            client = clientBuilder.build();
             log.info("CommentGeneratorClient 初始化成功");
         }
     }
 
-    public static String generateComment(MethodData data, Map<String, String> options) {
+    public static String generateComment(MethodData data, MethodOptions options) {
         if (client == null) {
             log.info("CommentGeneratorClient 未初始化，正在初始化默认配置");
             init(null);
@@ -51,44 +59,55 @@ public class CommentGeneratorClient {
         try {
             log.info("开始生成注释");
             CommentRequest req = CommentRequest.builder()
-                    .code((data.getSignature() == null ? "" : data.getSignature())
-                            + "\n" + (data.getBody() == null ? "" : data.getBody()))
-                    .existingComment(data.getExistingComment())
-                    .language("java")
-                    .options(CommentRequest.GenerationOptions.builder()
-                            .style(options.getOrDefault("style", "Javadoc"))
-                            .language(options.getOrDefault("language", "Chinese"))
-                            .build())
+                    .oldMethod(data.getOldMethod())
+                    .oldComment(data.getOldComment())
+                    .newMethod(data.getNewMethod())
+                    .modelName(options.getModelName())
                     .build();
 
             CompletableFuture<CommentResponse> future = client.generateComment(req);
             CommentResponse resp = future.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+
             if (resp != null && resp.isSuccess()) {
-                log.info("注释生成成功: {}", resp.getGeneratedComment());
+                log.debug("注释生成成功: {}", resp.getGeneratedComment());
                 return resp.getGeneratedComment();
-            } else {
-                log.warn("注释生成失败");
-                return null;
             }
+
+            log.warn("注释生成失败");
+            return null;
         } catch (Exception e) {
             log.error("注释生成服务异常", e);
             return null;
         }
     }
 
-    public static CompletableFuture<Boolean> health() {
+    public static List<String> getAvailableModels() {
         if (client == null) {
+            log.info("CommentGeneratorClient 未初始化，正在初始化默认配置");
             init(null);
         }
         try {
-            log.info("开始健康检查");
-            return client.health();
+            log.info("获取可用模型列表");
+            CompletableFuture<List<String>> future = client.getAvailableModels();
+            List<String> models = future.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+
+            if (models == null || models.isEmpty()) {
+                log.warn("未获取到可用模型列表");
+                return List.of();
+            }
+
+            log.info("可用模型列表: {}", models);
+            modelsList = models;
+            return models;
         } catch (Exception e) {
-            log.error("健康检查异常", e);
-            CompletableFuture<Boolean> f = new CompletableFuture<>();
-            f.completeExceptionally(e);
-            return f;
+            log.error("获取可用模型列表失败", e);
+            return List.of();
         }
+    }
+
+    public static void setSelectedModel(String selectedModel) {
+        log.info("设置选定模型: {}", selectedModel);
+        CommentGeneratorClient.selectedModel = selectedModel;
     }
 
     public static void shutdown() {

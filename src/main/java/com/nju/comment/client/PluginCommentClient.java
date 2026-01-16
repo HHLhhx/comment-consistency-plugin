@@ -126,15 +126,25 @@ public class PluginCommentClient implements CommentClient {
     }
 
     @Override
-    public CompletableFuture<Boolean> health() {
-        return sendJson("/comments/health", "GET", null, root -> {
-            boolean success = root.path("success").asBoolean(false);
-            if (!success) {
-                return Boolean.FALSE;
-            }
-            JsonNode dataNode = root.path("data");
-            return dataNode.isBoolean() ? dataNode.asBoolean() : Boolean.FALSE;
-        });
+    public CompletableFuture<List<String>> getAvailableModels() {
+        try {
+            return sendJson("/comments/models", "GET", null, root -> {
+                boolean success = root.path("success").asBoolean(false);
+                if (!success) {
+                    log.warn("获取可用模型请求失败");
+                    String msg = root.path("message").asText("Unknown error");
+                    throw new CompletionException(new RuntimeException(msg));
+                }
+                log.info("获取可用模型请求成功");
+                JsonNode dataNode = root.path("data");
+                return objectMapper.convertValue(dataNode, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            });
+        } catch (Exception e) {
+            log.error("获取可用模型请求失败", e);
+            CompletableFuture<List<String>> f = new CompletableFuture<>();
+            f.completeExceptionally(e);
+            return f;
+        }
     }
 
     @Override

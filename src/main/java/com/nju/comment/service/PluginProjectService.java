@@ -14,6 +14,7 @@ public final class PluginProjectService implements Disposable {
     public void initialize() {
         log.info("项目启动初始化");
         CommentGeneratorClient.init(DEFAULT_BASE_URL);
+        CommentGeneratorClient.getAvailableModels();
     }
 
     @Override

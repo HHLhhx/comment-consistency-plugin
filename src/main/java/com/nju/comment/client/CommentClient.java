@@ -12,7 +12,7 @@ public interface CommentClient {
 
     CompletableFuture<List<CommentResponse>> batchGenerateComments(CommentRequest request);
 
-    CompletableFuture<Boolean> health();
+    CompletableFuture<List<String>> getAvailableModels();
 
     void shutdown();
 }
