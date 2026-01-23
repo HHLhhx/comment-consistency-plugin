@@ -7,6 +7,6 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class MethodOptions {
+public class GenerateOptions {
     String modelName;
 }

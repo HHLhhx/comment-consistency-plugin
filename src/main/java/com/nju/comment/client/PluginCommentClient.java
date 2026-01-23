@@ -121,11 +121,6 @@ public class PluginCommentClient implements CommentClient {
     }
 
     @Override
-    public CompletableFuture<List<CommentResponse>> batchGenerateComments(CommentRequest request) {
-        return null;
-    }
-
-    @Override
     public CompletableFuture<List<String>> getAvailableModels() {
         try {
             return sendJson("/comments/models", "GET", null, root -> {

@@ -35,12 +35,19 @@
     </extensions>
 
     <actions>
-        <action id="CommentGenerator.GenerateFromCaret"
-                class="com.nju.comment.action.GenerateCommentAction"
-                text="Update Comment"
+        <action id="CommentGenerator.GenerateFromMethod"
+                class="com.nju.comment.action.GenerateCommentOnMethodAction"
+                text="Update Comment in Method"
                 description="Update method comment by backend">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut first-keystroke="ctrl alt G" keymap="$default"/>
+        </action>
+        <action id="CommentGenerator.GenerateFromFile"
+                class="com.nju.comment.action.GenerateCommentOnFileAction"
+                text="Update Comments in File"
+                description="Update all method comments in current file by backend">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut first-keystroke="ctrl alt H" keymap="$default"/>
         </action>
     </actions>
 </idea-plugin>

@@ -10,8 +10,6 @@ public interface CommentClient {
 
     CompletableFuture<CommentResponse> generateComment(CommentRequest request);
 
-    CompletableFuture<List<CommentResponse>> batchGenerateComments(CommentRequest request);
-
     CompletableFuture<List<String>> getAvailableModels();
 
     void shutdown();

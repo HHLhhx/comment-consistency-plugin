@@ -1,6 +1,5 @@
 package com.nju.comment;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.startup.ProjectActivity;
 import com.nju.comment.service.PluginProjectService;
@@ -15,9 +14,11 @@ public class PluginStartupActivity implements ProjectActivity {
 
     @Override
     public @Nullable Object execute(@NotNull Project project, @NotNull Continuation<? super Unit> continuation) {
-        PluginProjectService pluginProjectService = ApplicationManager.getApplication().getService(PluginProjectService.class);
+        PluginProjectService pluginProjectService = project.getService(PluginProjectService.class);
         log.info("执行插件启动活动，初始化项目服务: {}", pluginProjectService);
-        pluginProjectService.initialize();
+        if (pluginProjectService != null) {
+            pluginProjectService.initialize();
+        }
         return null;
     }
 }

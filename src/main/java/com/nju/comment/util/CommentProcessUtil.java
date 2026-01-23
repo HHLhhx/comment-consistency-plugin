@@ -1,9 +1,13 @@
-package com.nju.comment.tool;
+package com.nju.comment.util;
 
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 
-public class CommentProcessUtil {
+public final class CommentProcessUtil {
+
+    private CommentProcessUtil() {
+    }
+
     public static String processComment(String comment, PsiMethod psiMethod) {
         String sep = "\n";
         PsiFile file = psiMethod.getContainingFile();
@@ -21,5 +25,13 @@ public class CommentProcessUtil {
         processed = processed.replace("\r\n", sep).replace("\r", sep);
 
         return processed;
+    }
+
+    public static String safeTrim(String s) {
+        return s == null ? "" : s.trim();
+    }
+
+    public static String safeTrimNullable(String s) {
+        return (s == null || s.trim().isEmpty()) ? "" : s.trim();
     }
 }

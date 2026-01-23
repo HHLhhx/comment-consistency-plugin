@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class MethodData {
+public class MethodContext {
     String oldMethod;
     String oldComment;
     String newMethod;

@@ -1,10 +1,10 @@
 package com.nju.comment.client.global;
 
-import com.nju.comment.dto.MethodOptions;
+import com.nju.comment.dto.GenerateOptions;
+import com.nju.comment.dto.MethodContext;
 import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.response.CommentResponse;
 import com.nju.comment.client.PluginCommentClient;
-import com.nju.comment.dto.MethodData;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -51,7 +51,7 @@ public class CommentGeneratorClient {
         }
     }
 
-    public static String generateComment(MethodData data, MethodOptions options) {
+    public static String generateComment(MethodContext data, GenerateOptions options) {
         if (client == null) {
             log.info("CommentGeneratorClient 未初始化，正在初始化默认配置");
             init(null);

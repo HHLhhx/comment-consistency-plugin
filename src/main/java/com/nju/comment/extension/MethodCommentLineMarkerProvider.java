@@ -17,15 +17,14 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
 import com.nju.comment.client.global.CommentGeneratorClient;
-import com.nju.comment.dto.MethodData;
-import com.nju.comment.dto.MethodOptions;
+import com.nju.comment.dto.MethodContext;
+import com.nju.comment.dto.GenerateOptions;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
-import java.util.Map;
 
 public class MethodCommentLineMarkerProvider implements LineMarkerProvider {
 
@@ -102,7 +101,7 @@ public class MethodCommentLineMarkerProvider implements LineMarkerProvider {
             popup.cancel();
 
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
-                MethodData data = ReadAction.compute(() -> {
+                MethodContext data = ReadAction.compute(() -> {
                     PsiMethod psiMethod = methodPointer.getElement();
                     if (psiMethod == null) {
                         return null;
@@ -114,14 +113,14 @@ public class MethodCommentLineMarkerProvider implements LineMarkerProvider {
                     String existingComment = psiMethod.getDocComment() != null
                             ? psiMethod.getDocComment().getText() : "";
 
-                    return new MethodData(signature, body, existingComment);
+                    return new MethodContext(signature, body, existingComment);
                 });
 
                 if (data == null) {
                     return;
                 }
 
-                MethodOptions options = new MethodOptions(CommentGeneratorClient.getSelectedModel());
+                GenerateOptions options = new GenerateOptions(CommentGeneratorClient.getSelectedModel());
                 String generated = CommentGeneratorClient.generateComment(data, options);
 
                 if (generated == null || generated.isBlank()) {
