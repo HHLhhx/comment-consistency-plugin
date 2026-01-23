@@ -17,7 +17,7 @@ import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.dto.GenerateOptions;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
-import com.nju.comment.util.CommentProcessUtil;
+import com.nju.comment.util.TextProcessUtil;
 import com.nju.comment.util.MethodRecordUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -123,7 +123,7 @@ public final class PluginProjectService implements Disposable {
                                 return "TODO";
                             }
                             String generated = CommentGeneratorClient.generateComment(context, options);
-                            return CommentProcessUtil.processComment(generated, method);
+                            return TextProcessUtil.processComment(generated);
                         });
             } catch (Exception ex) {
                 log.warn("刷新方法历史记录失败，方法签名：{}", MethodRecordUtil.buildMethodKey(method), ex);

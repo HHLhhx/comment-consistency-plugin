@@ -7,8 +7,7 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.nju.comment.dto.*;
-import com.nju.comment.util.CommentProcessUtil;
-import com.nju.comment.util.LocationUtil;
+import com.nju.comment.util.TextProcessUtil;
 import com.nju.comment.util.MethodRecordUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -21,7 +20,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
 
     public void updateMethodHistory(PsiMethod method, Function<MethodContext, String> commentGenerator) {
         Object[] info = ReadAction.compute(() -> {
-            String path = LocationUtil.getFilePath(method);
+            String path = MethodRecordUtil.getFilePath(method);
             String qualifiedName = MethodRecordUtil.getQualifiedNameContainClass(method);
             String signature = MethodRecordUtil.getMethodSignature(method);
             PsiDocComment pdc = method.getDocComment();
@@ -44,8 +43,8 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         String curComment = (String) info[3];
         String curMethod = (String) info[4];
 
-        curComment = CommentProcessUtil.safeTrim(curComment);
-        curMethod = CommentProcessUtil.safeTrimNullable(curMethod);
+        curComment = TextProcessUtil.processComment(curComment);
+        curMethod = TextProcessUtil.processMethod(curMethod);
 
         String key = MethodRecordUtil.buildMethodKey(qualifiedName, signature);
         MethodRecord record = repository.findByKey(key);
@@ -65,7 +64,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                 log.info("status: new method without comment");
                 MethodContext context = new MethodContext("", "", curMethod);
 
-                String newComment = CommentProcessUtil.safeTrim(commentGenerator.apply(context));
+                String newComment = TextProcessUtil.processComment(commentGenerator.apply(context));
                 MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, null);
                 r.createMethodPointer(method);
                 r.setTag(1);
@@ -75,8 +74,8 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
             }
         } else {
             // 历史记录存在
-            String oldMethod = CommentProcessUtil.safeTrim(record.getOldMethod());
-            String oldComment = CommentProcessUtil.safeTrimNullable(record.getOldComment());
+            String oldMethod = TextProcessUtil.processMethod(record.getOldMethod());
+            String oldComment = TextProcessUtil.processComment(record.getOldComment());
 
             if (oldMethod.equals(curMethod)) {
                 // currentMethod与oldMethod相同
@@ -108,7 +107,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                     log.info("status: method changed");
                     MethodContext context = new MethodContext(record.getOldMethod(), record.getOldComment(), curMethod);
 
-                    String newComment = CommentProcessUtil.safeTrim(commentGenerator.apply(context));
+                    String newComment = TextProcessUtil.processComment(commentGenerator.apply(context));
                     record.setOldMethod(curMethod);
                     record.setTag(1);
                     record.setFilePath(path);
@@ -166,16 +165,19 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                             
                             MethodRecord - key: {}
                             oldMethod:\s
-                            \t{}
+                            {}
                             oldComment:\s
-                            \t{}
+                            {}
                             stagedComment:\s
-                            \t{}
+                            {}
                             updatedAt: {}
                             tag: {}
                             filePath: {}""",
-                    record.getKey(), record.getOldMethod(), record.getOldComment(),
-                    record.getStagedComment(), record.getUpdatedAt(), record.getTag(),
+                    record.getKey(),
+                    TextProcessUtil.processMethod(record.getOldMethod()),
+                    TextProcessUtil.processComment(record.getOldComment()),
+                    TextProcessUtil.processComment(record.getStagedComment()),
+                    record.getUpdatedAt(), record.getTag(),
                     record.getFilePath());
         }
     }
