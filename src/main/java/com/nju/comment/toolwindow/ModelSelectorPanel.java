@@ -22,11 +22,13 @@ public class ModelSelectorPanel {
     private final JPanel root;
     private final DefaultComboBoxModel<String> comboBoxModel;
     private final ComboBox<String> modelCombo;
+    private final JToggleButton autoUpdateBtn;
 
-    private final MethodHistoryManager methodHistoryManager = new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
+    private final MethodHistoryManager methodHistoryManager =
+            new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
 
-    private ScheduledExecutorService autoScheduler;
-    private ScheduledFuture<?> autoFuture;
+    private ScheduledExecutorService autoUpdateScheduler;
+    private ScheduledFuture<?> autoUpdateFuture;
 
     public ModelSelectorPanel(Project project) {
         root = new JPanel(new BorderLayout());
@@ -36,7 +38,7 @@ public class ModelSelectorPanel {
         JButton refreshBtn = new JButton("Refresh");
         JButton updateAllMethodsBtn = new JButton("Update All Methods");
         JButton checkMethodRecordsBtn = new JButton("Print Records");
-        JToggleButton autoToggleBtn = new JToggleButton("Auto Update: OFF");
+        autoUpdateBtn = new JToggleButton("Auto Update: OFF");
 
         JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel comboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -44,7 +46,7 @@ public class ModelSelectorPanel {
         comboHolder.add(modelCombo);
         row1.add(refreshBtn);
         row1.add(comboHolder);
-        row1.add(autoToggleBtn);
+        row1.add(autoUpdateBtn);
 
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT));
         row2.add(updateAllMethodsBtn);
@@ -58,43 +60,49 @@ public class ModelSelectorPanel {
         root.add(top, BorderLayout.NORTH);
 
         refreshBtn.addActionListener(e -> reLoadModels());
-        modelCombo.addActionListener(e -> {
-            String selectedModel = (String) modelCombo.getSelectedItem();
-            if (selectedModel != null) {
-                CommentGeneratorClient.setSelectedModel(selectedModel);
-            }
-        });
-        updateAllMethodsBtn.addActionListener(e -> {
-            PluginProjectService service = project.getService(PluginProjectService.class);
-            service.refreshAllMethodHistories();
-        });
+        modelCombo.addActionListener(e -> selectModel());
+        updateAllMethodsBtn.addActionListener(e -> updateAllMethods(project));
         checkMethodRecordsBtn.addActionListener(e -> methodHistoryManager.printAllMethodRecords());
-        autoToggleBtn.addActionListener(e -> {
-            if (autoToggleBtn.isSelected()) {
-                autoToggleBtn.setText("Auto Update: ON");
-                if (autoScheduler == null || autoScheduler.isShutdown()) {
-                    autoScheduler = Executors.newSingleThreadScheduledExecutor();
-                }
-                autoFuture = autoScheduler.scheduleWithFixedDelay(() -> {
-                    PluginProjectService service = project.getService(PluginProjectService.class);
-                    if (service != null) {
-                        service.refreshAllMethodHistories();
-                    }
-                }, 0, 3, TimeUnit.SECONDS);
-            } else {
-                autoToggleBtn.setText("Auto Update: OFF");
-                if (autoFuture != null) {
-                    autoFuture.cancel(true);
-                    autoFuture = null;
-                }
-                if (autoScheduler != null) {
-                    autoScheduler.shutdown();
-                    autoScheduler = null;
-                }
-            }
-        });
+        autoUpdateBtn.addActionListener(e -> autoUpdate(project));
 
         loadModels();
+    }
+
+    private void autoUpdate(Project project) {
+        if (autoUpdateBtn.isSelected()) {
+            autoUpdateBtn.setText("Auto Update: ON");
+            if (autoUpdateScheduler == null || autoUpdateScheduler.isShutdown()) {
+                autoUpdateScheduler = Executors.newSingleThreadScheduledExecutor();
+            }
+            autoUpdateFuture = autoUpdateScheduler.scheduleWithFixedDelay(() -> {
+                PluginProjectService service = project.getService(PluginProjectService.class);
+                if (service != null) {
+                    service.refreshAllMethodHistories();
+                }
+            }, 3, 3, TimeUnit.SECONDS);
+        } else {
+            autoUpdateBtn.setText("Auto Update: OFF");
+            if (autoUpdateFuture != null) {
+                autoUpdateFuture.cancel(true);
+                autoUpdateFuture = null;
+            }
+            if (autoUpdateScheduler != null) {
+                autoUpdateScheduler.shutdown();
+                autoUpdateScheduler = null;
+            }
+        }
+    }
+
+    private static void updateAllMethods(Project project) {
+        PluginProjectService service = project.getService(PluginProjectService.class);
+        service.refreshAllMethodHistories();
+    }
+
+    private void selectModel() {
+        String selectedModel = (String) modelCombo.getSelectedItem();
+        if (selectedModel != null) {
+            CommentGeneratorClient.setSelectedModel(selectedModel);
+        }
     }
 
     private void reLoadModels() {
