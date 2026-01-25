@@ -33,6 +33,7 @@ public final class TextProcessUtil {
         StringBuilder sb = new StringBuilder();
         for (String line : lines) {
             line = line.trim();
+            if (line.isEmpty()) continue;
             if (line.startsWith("}") || line.startsWith(")") || line.startsWith("]")) {
                 indent--;
             }

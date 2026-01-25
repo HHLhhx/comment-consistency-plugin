@@ -4,19 +4,24 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiMethod;
 import com.intellij.ui.components.JBScrollPane;
+import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.MethodRecord;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.service.PluginProjectService;
+import com.nju.comment.util.TextProcessUtil;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 public class HistoryCardsPanel {
 
     @Getter
@@ -53,7 +58,8 @@ public class HistoryCardsPanel {
         autoDeleteBtn.addActionListener(e -> autoDelete(project));
 
         // 启动定时轮询，检测tag = 1的记录
-        scheduler.scheduleWithFixedDelay(this::pollAndRefresh, 0, 500, TimeUnit.MILLISECONDS);
+        scheduler.scheduleWithFixedDelay(this::pollAndRefresh,
+                Constant.UI_REFRESH_INITIAL_DELAY_MS, Constant.UI_REFRESH_DELAY_MS, TimeUnit.MILLISECONDS);
     }
 
     private void autoDelete(Project project) {
@@ -63,10 +69,10 @@ public class HistoryCardsPanel {
                 autoDeleteScheduler = Executors.newSingleThreadScheduledExecutor();
             }
             autoDeleteFuture = autoDeleteScheduler.scheduleWithFixedDelay(() -> {
-                        PluginProjectService service = project.getService(PluginProjectService.class);
-                        List<PsiMethod> methods = service.collectAllMethods(project);
-                        methodHistoryManager.clearDeletedMethodHistories(methods);
-                    }, 3, 3, TimeUnit.SECONDS);
+                PluginProjectService service = project.getService(PluginProjectService.class);
+                List<PsiMethod> methods = service.collectAllMethods(project);
+                methodHistoryManager.clearDeletedMethodHistories(methods);
+            }, Constant.AUTO_DELETE_INITIAL_DELAY_MS, Constant.AUTO_DELETE_DELAY_MS, TimeUnit.MILLISECONDS);
         } else {
             autoDeleteBtn.setText("Auto Delete: OFF");
             if (autoDeleteFuture != null) {
@@ -81,10 +87,18 @@ public class HistoryCardsPanel {
     }
 
     private void pollAndRefresh() {
+        // 获取所有tag = 1且注释已更改的记录
         List<MethodRecord> staged = repository.findAll().stream()
                 .filter(r -> r.getTag() == 1)
+                .filter(r ->
+                        !TextProcessUtil.safeTrimNullable(r.getOldComment())
+                                .equals(TextProcessUtil.safeTrimNullable(r.getStagedComment())))
                 .toList();
-        Set<String> current = staged.stream().map(MethodRecord::getSignature).collect(Collectors.toSet());
+
+        // 仅在记录的签名或注释有变化时刷新UI
+        Set<String> current = staged.stream()
+                .map(m -> m.getKey() + "#" + m.getStagedComment())
+                .collect(Collectors.toSet());
         if (!current.equals(lastSeenSignatures)) {
             lastSeenSignatures = current;
             ApplicationManager.getApplication().invokeLater(() -> refreshList(staged));
@@ -94,10 +108,7 @@ public class HistoryCardsPanel {
     private void refreshList(List<MethodRecord> staged) {
         listPanel.removeAll();
         for (MethodRecord record : staged) {
-            MethodHistoryCard card = new MethodHistoryCard(project, record, repository, () -> {
-                listPanel.revalidate();
-                listPanel.repaint();
-            });
+            MethodHistoryCard card = new MethodHistoryCard(project, record, repository);
             listPanel.add(card.getRoot());
             listPanel.add(Box.createVerticalStrut(10));
         }

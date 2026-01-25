@@ -45,10 +45,13 @@ public final class PluginProjectService implements Disposable {
     public void initialize() {
         log.info("项目启动初始化");
         CommentGeneratorClient.init(DEFAULT_BASE_URL);
-        ApplicationManager.getApplication().executeOnPooledThread(CommentGeneratorClient::getAvailableModels);
-        DumbService.getInstance(project).runWhenSmart(this::refreshAllMethodHistories);
-
-        initializationFuture.complete(null);
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            CommentGeneratorClient.getAvailableModels();
+            String defaultModel = CommentGeneratorClient.getModelsList().getFirst();
+            CommentGeneratorClient.setSelectedModel(defaultModel);
+            initializationFuture.complete(null);
+            DumbService.getInstance(project).runWhenSmart(this::refreshAllMethodHistories);
+        });
     }
 
     public void refreshAllMethodHistories() {

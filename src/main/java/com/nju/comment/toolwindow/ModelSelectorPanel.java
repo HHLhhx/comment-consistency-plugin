@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.nju.comment.client.global.CommentGeneratorClient;
+import com.nju.comment.constant.Constant;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.service.PluginProjectService;
@@ -79,7 +80,7 @@ public class ModelSelectorPanel {
                 if (service != null) {
                     service.refreshAllMethodHistories();
                 }
-            }, 3, 3, TimeUnit.SECONDS);
+            }, Constant.AUTO_UPDATE_INITIAL_DELAY_MS, Constant.AUTO_UPDATE_DELAY_MS, TimeUnit.MILLISECONDS);
         } else {
             autoUpdateBtn.setText("Auto Update: OFF");
             if (autoUpdateFuture != null) {
@@ -128,16 +129,14 @@ public class ModelSelectorPanel {
     }
 
     private void loadModels() {
-        ApplicationManager.getApplication().executeOnPooledThread(() -> {
-            List<String> models = CommentGeneratorClient.getModelsList();
-            ApplicationManager.getApplication().invokeLater(() -> {
-                comboBoxModel.removeAllElements();
-                models.forEach(comboBoxModel::addElement);
-                if (!models.isEmpty()) {
-                    comboBoxModel.setSelectedItem(models.getFirst());
-                    CommentGeneratorClient.setSelectedModel(models.getFirst());
-                }
-            });
+        List<String> models = CommentGeneratorClient.getModelsList();
+        ApplicationManager.getApplication().invokeLater(() -> {
+            comboBoxModel.removeAllElements();
+            models.forEach(comboBoxModel::addElement);
+            if (!models.isEmpty()) {
+                comboBoxModel.setSelectedItem(models.getFirst());
+                CommentGeneratorClient.setSelectedModel(models.getFirst());
+            }
         });
     }
 }

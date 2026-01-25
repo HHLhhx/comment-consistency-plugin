@@ -28,13 +28,11 @@ public class MethodHistoryCard {
     private final MethodRecord record;
     private final Project project;
     private final MethodHistoryRepositoryImpl repository;
-    private final Runnable onHandled;
 
-    public MethodHistoryCard(Project project, MethodRecord record, MethodHistoryRepositoryImpl repository, Runnable onHandled) {
+    public MethodHistoryCard(Project project, MethodRecord record, MethodHistoryRepositoryImpl repository) {
         this.project = project;
         this.record = record;
         this.repository = repository;
-        this.onHandled = onHandled;
         this.root = buildCard();
     }
 
@@ -158,8 +156,6 @@ public class MethodHistoryCard {
             record.revertStagedOldComment();
             record.setTag(0);
             repository.save(record);
-
-            onHandled.run();
         });
     }
 
@@ -167,7 +163,5 @@ public class MethodHistoryCard {
         record.clearStaged();
         record.setTag(0);
         repository.save(record);
-
-        onHandled.run();
     }
 }

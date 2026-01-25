@@ -31,7 +31,6 @@ public class ModelSelectorToolWindowFactory implements ToolWindowFactory {
             ContentFactory contentFactory = ContentFactory.getInstance();
             Content content = contentFactory.createContent(root, "", false);
             toolWindow.getContentManager().addContent(content);
-
         }));
     }
 }
