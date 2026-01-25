@@ -4,7 +4,6 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.components.Service;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -12,6 +11,7 @@ import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.nju.comment.client.global.CommentGeneratorClient;
+import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.GenerateOptions;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
@@ -24,15 +24,19 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Service(Service.Level.PROJECT)
 public final class PluginProjectService implements Disposable {
 
-    private static final String DEFAULT_BASE_URL = "http://localhost:8080/api";
+    private static final String DEFAULT_BASE_URL = Constant.CLIENT_DEFAULT_BASE_URL;
 
     private final Project project;
     private final MethodHistoryManager methodHistoryManager;
+
+    /** 全局自动刷新是否正在进行，防止周期短于后端响应时重复触发整批刷新 */
+    private final AtomicBoolean refreshAllInProgress = new AtomicBoolean(false);
 
     @Getter
     private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
@@ -56,18 +60,23 @@ public final class PluginProjectService implements Disposable {
     }
 
     private void doRefreshAllMethodHistories() {
-        log.info("刷新项目中所有方法历史记录");
-        List<PsiMethod> methods = collectAllMethods(project);
-        log.info("共找到方法数量：{}", methods.size());
-
-        long startTime = System.nanoTime();
-        List<Future<?>> futures = new ArrayList<>();
-        for (PsiMethod method : methods) {
-            Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method));
-            futures.add(future);
+        if (!refreshAllInProgress.compareAndSet(false, true)) {
+            log.info("上一轮自动刷新尚未结束，跳过本轮");
+            return;
         }
-
         try {
+            log.info("刷新项目中所有方法历史记录");
+            List<PsiMethod> methods = collectAllMethods(project);
+            log.info("共找到方法数量：{}", methods.size());
+
+            long startTime = System.nanoTime();
+            List<Future<?>> futures = new ArrayList<>();
+            for (PsiMethod method : methods) {
+                Future<?> future = ApplicationManager.getApplication()
+                        .executeOnPooledThread(() -> doRefreshMethodHistory(method, true));
+                futures.add(future);
+            }
+
             for (Future<?> future : futures) {
                 try {
                     future.get();
@@ -80,9 +89,10 @@ public final class PluginProjectService implements Disposable {
             }
             long endTime = System.nanoTime();
             log.info("所有方法历史记录刷新任务已完成，耗时：{} ms", (endTime - startTime) / 1_000_000);
-            log.info("所有方法历史记录刷新任务已完成");
         } catch (Exception ex) {
             log.warn("等待方法历史记录刷新任务完成时发生异常", ex);
+        } finally {
+            refreshAllInProgress.set(false);
         }
     }
 
@@ -125,7 +135,8 @@ public final class PluginProjectService implements Disposable {
         long startTime = System.nanoTime();
         List<Future<?>> futures = new ArrayList<>();
         for (PsiMethod method : methods) {
-            Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method));
+            Future<?> future = ApplicationManager.getApplication()
+                    .executeOnPooledThread(() -> doRefreshMethodHistory(method, false));
             futures.add(future);
         }
 
@@ -149,25 +160,38 @@ public final class PluginProjectService implements Disposable {
     }
 
     public void refreshMethodHistory(PsiMethod method) {
-        ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method));
+        ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method, false));
     }
 
-    private void doRefreshMethodHistory(PsiMethod method) {
+    /**
+     * @param fromAutoUpdate true=自动刷新：若该方法已有在途请求则跳过；false=用户触发：先取消该方法的在途请求再发新请求
+     */
+    private void doRefreshMethodHistory(PsiMethod method, boolean fromAutoUpdate) {
         ReadAction.run(() -> {
             if (!isValid(method)) return;
 
+            String methodKey = MethodRecordUtil.buildMethodKey(method);
+            if (fromAutoUpdate && CommentGeneratorClient.hasInFlightForMethod(methodKey)) {
+                return;
+            }
+
             try {
                 GenerateOptions options = new GenerateOptions(CommentGeneratorClient.getSelectedModel());
+                boolean cancelPreviousIfInFlight = !fromAutoUpdate;
                 methodHistoryManager.updateMethodHistory(method,
                         context -> {
                             if (context.getOldMethod() == null || context.getOldMethod().isBlank()) {
                                 return "TODO";
                             }
-                            String generated = CommentGeneratorClient.generateComment(context, options);
+                            String generated = CommentGeneratorClient.generateComment(
+                                    methodKey, context, options, cancelPreviousIfInFlight);
+                            if (generated == null) {
+                                return "TODO";
+                            }
                             return TextProcessUtil.processComment(generated);
                         });
             } catch (Exception ex) {
-                log.warn("刷新方法历史记录失败，方法签名：{}", MethodRecordUtil.buildMethodKey(method), ex);
+                log.warn("刷新方法历史记录失败，方法签名：{}", methodKey, ex);
             }
         });
     }

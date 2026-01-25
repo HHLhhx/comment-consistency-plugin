@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.response.CommentResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -121,6 +122,32 @@ public class PluginCommentClient implements CommentClient {
     }
 
     @Override
+    public void cancelRequest(String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            log.warn("取消请求失败，requestId 为空");
+            return;
+        }
+
+        try {
+            String json = objectMapper.writeValueAsString(new CancelRequestPayload(requestId));
+            log.info("发送取消请求: \n{}", json);
+
+            sendJson("/comments/cancel", "POST", json, root -> {
+                boolean success = root.path("success").asBoolean(false);
+                if (!success) {
+                    log.warn("取消请求失败, requestId={}", requestId);
+                    String msg = root.path("message").asText("Unknown error");
+                    throw new CompletionException(new RuntimeException(msg));
+                }
+                log.info("取消请求成功, requestId={}", requestId);
+                return null;
+            });
+        } catch (Exception e) {
+            log.error("取消请求异常, requestId={}", requestId, e);
+        }
+    }
+
+    @Override
     public CompletableFuture<List<String>> getAvailableModels() {
         try {
             return sendJson("/comments/models", "GET", null, root -> {
@@ -164,10 +191,10 @@ public class PluginCommentClient implements CommentClient {
 
     public static class Builder {
         private String baseUrl;
-        private int threadPoolSize = 10;
-        private int maxConcurrentRequests = 20;
-        private Duration connectTimeout = Duration.ofSeconds(10);
-        private Duration requestTimeout = Duration.ofSeconds(20);
+        private int threadPoolSize = Constant.HTTP_DEFAULT_THREAD_POOL_SIZE;
+        private int maxConcurrentRequests = Constant.HTTP_DEFAULT_MAX_CONNECTION_REQUESTS;
+        private Duration connectTimeout = Duration.ofSeconds(Constant.HTTP_DEFAULT_CONNECTION_TIMEOUT_S);
+        private Duration requestTimeout = Duration.ofSeconds(Constant.HTTP_DEFAULT_REQUEST_TIMEOUT_S);
 
         public Builder baseUrl(String baseUrl) {
             this.baseUrl = baseUrl;
@@ -202,5 +229,11 @@ public class PluginCommentClient implements CommentClient {
     @FunctionalInterface
     private interface FunctionWithIOException<T, R> {
         R apply(T t) throws Exception;
+    }
+
+    private record CancelRequestPayload(@SuppressWarnings("unused") String requestId) {
+        private CancelRequestPayload(String requestId) {
+            this.requestId = requestId;
+        }
     }
 }
