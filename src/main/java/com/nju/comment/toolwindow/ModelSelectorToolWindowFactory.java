@@ -1,6 +1,7 @@
 package com.nju.comment.toolwindow;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
@@ -31,6 +32,8 @@ public class ModelSelectorToolWindowFactory implements ToolWindowFactory {
             ContentFactory contentFactory = ContentFactory.getInstance();
             Content content = contentFactory.createContent(root, "", false);
             toolWindow.getContentManager().addContent(content);
+
+            DumbService.getInstance(project).runWhenSmart(service::refreshAllMethodHistories);
         }));
     }
 }

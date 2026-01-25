@@ -47,10 +47,7 @@ public final class PluginProjectService implements Disposable {
         CommentGeneratorClient.init(DEFAULT_BASE_URL);
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             CommentGeneratorClient.getAvailableModels();
-            String defaultModel = CommentGeneratorClient.getModelsList().getFirst();
-            CommentGeneratorClient.setSelectedModel(defaultModel);
             initializationFuture.complete(null);
-            DumbService.getInstance(project).runWhenSmart(this::refreshAllMethodHistories);
         });
     }
 
@@ -63,6 +60,7 @@ public final class PluginProjectService implements Disposable {
         List<PsiMethod> methods = collectAllMethods(project);
         log.info("共找到方法数量：{}", methods.size());
 
+        long startTime = System.nanoTime();
         List<Future<?>> futures = new ArrayList<>();
         for (PsiMethod method : methods) {
             Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method));
@@ -80,6 +78,8 @@ public final class PluginProjectService implements Disposable {
                     log.warn("方法历史记录刷新任务执行时发生异常", e.getCause());
                 }
             }
+            long endTime = System.nanoTime();
+            log.info("所有方法历史记录刷新任务已完成，耗时：{} ms", (endTime - startTime) / 1_000_000);
             log.info("所有方法历史记录刷新任务已完成");
         } catch (Exception ex) {
             log.warn("等待方法历史记录刷新任务完成时发生异常", ex);
@@ -122,6 +122,7 @@ public final class PluginProjectService implements Disposable {
         });
         log.info("文件中找到方法数量：{}", methods.size());
 
+        long startTime = System.nanoTime();
         List<Future<?>> futures = new ArrayList<>();
         for (PsiMethod method : methods) {
             Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method));
@@ -139,6 +140,8 @@ public final class PluginProjectService implements Disposable {
                     log.warn("文件方法历史记录刷新任务执行时发生异常", e.getCause());
                 }
             }
+            long endTime = System.nanoTime();
+            log.info("文件方法历史记录刷新任务已完成，耗时：{} ms", (endTime - startTime) / 1_000_000);
             log.info("文件所有方法历史记录刷新任务已完成，path: {}", file.getPath());
         } catch (Exception ex) {
             log.warn("等待文件方法历史记录刷新任务完成时发生异常，path: {}", file.getPath(), ex);
