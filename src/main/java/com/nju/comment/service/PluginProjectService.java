@@ -24,7 +24,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Service(Service.Level.PROJECT)
@@ -34,9 +33,6 @@ public final class PluginProjectService implements Disposable {
 
     private final Project project;
     private final MethodHistoryManager methodHistoryManager;
-
-    /** 全局自动刷新是否正在进行，防止周期短于后端响应时重复触发整批刷新 */
-    private final AtomicBoolean refreshAllInProgress = new AtomicBoolean(false);
 
     @Getter
     private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
@@ -60,23 +56,19 @@ public final class PluginProjectService implements Disposable {
     }
 
     private void doRefreshAllMethodHistories() {
-        if (!refreshAllInProgress.compareAndSet(false, true)) {
-            log.info("上一轮自动刷新尚未结束，跳过本轮");
-            return;
+        log.info("刷新项目中所有方法历史记录");
+        List<PsiMethod> methods = collectAllMethods(project);
+        log.info("共找到方法数量：{}", methods.size());
+
+        long startTime = System.nanoTime();
+        List<Future<?>> futures = new ArrayList<>();
+        for (PsiMethod method : methods) {
+            Future<?> future = ApplicationManager.getApplication()
+                    .executeOnPooledThread(() -> doRefreshMethodHistory(method));
+            futures.add(future);
         }
+
         try {
-            log.info("刷新项目中所有方法历史记录");
-            List<PsiMethod> methods = collectAllMethods(project);
-            log.info("共找到方法数量：{}", methods.size());
-
-            long startTime = System.nanoTime();
-            List<Future<?>> futures = new ArrayList<>();
-            for (PsiMethod method : methods) {
-                Future<?> future = ApplicationManager.getApplication()
-                        .executeOnPooledThread(() -> doRefreshMethodHistory(method, true));
-                futures.add(future);
-            }
-
             for (Future<?> future : futures) {
                 try {
                     future.get();
@@ -91,8 +83,6 @@ public final class PluginProjectService implements Disposable {
             log.info("所有方法历史记录刷新任务已完成，耗时：{} ms", (endTime - startTime) / 1_000_000);
         } catch (Exception ex) {
             log.warn("等待方法历史记录刷新任务完成时发生异常", ex);
-        } finally {
-            refreshAllInProgress.set(false);
         }
     }
 
@@ -136,7 +126,7 @@ public final class PluginProjectService implements Disposable {
         List<Future<?>> futures = new ArrayList<>();
         for (PsiMethod method : methods) {
             Future<?> future = ApplicationManager.getApplication()
-                    .executeOnPooledThread(() -> doRefreshMethodHistory(method, false));
+                    .executeOnPooledThread(() -> doRefreshMethodHistory(method));
             futures.add(future);
         }
 
@@ -160,34 +150,26 @@ public final class PluginProjectService implements Disposable {
     }
 
     public void refreshMethodHistory(PsiMethod method) {
-        ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method, false));
+        ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method));
     }
 
     /**
-     * @param fromAutoUpdate true=自动刷新：若该方法已有在途请求则跳过；false=用户触发：先取消该方法的在途请求再发新请求
+     * 刷新单方法历史。自动周期更新与手动（项目/文件/方法）更新统一由此执行；
+     * 同一方法下「重复触发以最初为准、修改后再触发以最近为准」由 CommentGeneratorClient 按内容指纹保证。
      */
-    private void doRefreshMethodHistory(PsiMethod method, boolean fromAutoUpdate) {
+    private void doRefreshMethodHistory(PsiMethod method) {
         ReadAction.run(() -> {
             if (!isValid(method)) return;
 
             String methodKey = MethodRecordUtil.buildMethodKey(method);
-            if (fromAutoUpdate && CommentGeneratorClient.hasInFlightForMethod(methodKey)) {
-                return;
-            }
-
             try {
                 GenerateOptions options = new GenerateOptions(CommentGeneratorClient.getSelectedModel());
-                boolean cancelPreviousIfInFlight = !fromAutoUpdate;
                 methodHistoryManager.updateMethodHistory(method,
                         context -> {
                             if (context.getOldMethod() == null || context.getOldMethod().isBlank()) {
                                 return "TODO";
                             }
-                            String generated = CommentGeneratorClient.generateComment(
-                                    methodKey, context, options, cancelPreviousIfInFlight);
-                            if (generated == null) {
-                                return "TODO";
-                            }
+                            String generated = CommentGeneratorClient.generateComment(methodKey, context, options);
                             return TextProcessUtil.processComment(generated);
                         });
             } catch (Exception ex) {

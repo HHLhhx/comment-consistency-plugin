@@ -7,23 +7,27 @@ import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.response.CommentResponse;
 import com.nju.comment.client.CommentClient;
 import com.nju.comment.client.PluginCommentClient;
+import com.nju.comment.util.TextProcessUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.*;
 
 @Slf4j
 public class CommentGeneratorClient {
 
+    private static final String FINGERPRINT_DELIM = "\u0001";
+
     private static volatile CommentClient client;
     private static final Object LOCK = new Object();
     private static final Duration TIMEOUT = Duration.ofSeconds(Constant.CLIENT_REQUEST_TIMEOUT_S);
 
-    // 方法维度的在途请求记录
+    // 方法维度的在途请求记录，用内容指纹区分「重复触发」与「修改后再触发」
     private static final Map<String, InFlightRecord> IN_FLIGHT_BY_METHOD = new ConcurrentHashMap<>();
 
     @Getter
@@ -32,7 +36,16 @@ public class CommentGeneratorClient {
     @Getter
     private static volatile String selectedModel = null;
 
-    private record InFlightRecord(String requestId, CompletableFuture<CommentResponse> future) {
+    private record InFlightRecord(String requestId, CompletableFuture<CommentResponse> future, String contentFingerprint) {
+    }
+
+    /** 用于判断同一方法下是「重复触发」还是「修改后再触发」。重复触发以最初为准；修改后再触发以最近为准。 */
+    private static String contentFingerprint(MethodContext ctx) {
+        if (ctx == null) return "";
+        String o = TextProcessUtil.safeTrimNullable(ctx.getOldMethod());
+        String c = TextProcessUtil.safeTrimNullable(ctx.getOldComment());
+        String n = TextProcessUtil.safeTrimNullable(ctx.getNewMethod());
+        return o + FINGERPRINT_DELIM + c + FINGERPRINT_DELIM + n;
     }
 
     public static void init(String baseUrl) {
@@ -61,25 +74,33 @@ public class CommentGeneratorClient {
     }
 
     /**
-     * 按方法维度的生成注释（支持取消旧请求、跳过重复请求）。
+     * 按方法维度的生成注释。
+     * 同一方法：重复触发（内容未变）以最初为准并跳过本次；在返回前又修改并再触发则以最近为准，会先取消在途请求再发新请求。
      *
-     * @param methodKey                方法唯一键，为 null 时不做在途去重/取消
-     * @param data                     方法上下文
-     * @param options                  生成选项
-     * @param cancelPreviousIfInFlight true 时若该 method 已有在途请求则先取消再发新请求（覆盖）；false 时若有在途请求则直接返回 null（跳过）
+     * @param methodKey 方法唯一键，为 null 时不按方法做在途去重/取消
+     * @param data      方法上下文，用于计算内容指纹
+     * @param options   生成选项
      * @return 生成的注释文本，取消/跳过/失败时返回 null
      */
-    public static String generateComment(String methodKey, MethodContext data, GenerateOptions options,
-                                         boolean cancelPreviousIfInFlight) {
+    public static String generateComment(String methodKey, MethodContext data, GenerateOptions options) {
+        // 初始化检查
         initCheck();
+
+        // 计算内容指纹
+        String fingerprint = contentFingerprint(data);
         if (methodKey != null && !methodKey.isBlank()) {
-            if (cancelPreviousIfInFlight) {
+            InFlightRecord existing = IN_FLIGHT_BY_METHOD.get(methodKey);
+            if (existing != null) {
+                if (Objects.equals(existing.contentFingerprint(), fingerprint)) {
+                    log.info("方法 {} 已有相同内容的在途请求，以最初为准，跳过本次", methodKey);
+                    return null;
+                }
+                log.info("方法 {} 在途请求内容已变更，以最近为准，取消在途并发送新请求", methodKey);
                 cancelForMethod(methodKey);
-            } else if (hasInFlightForMethod(methodKey)) {
-                log.info("方法 {} 已有在途注释生成请求，跳过本次", methodKey);
-                return null;
             }
         }
+
+        // 构建请求并发送
         try {
             String requestId = UUID.randomUUID().toString();
             log.info("开始生成注释, requestId={}, methodKey={}", requestId, methodKey);
@@ -93,9 +114,8 @@ public class CommentGeneratorClient {
 
             CompletableFuture<CommentResponse> future = client.generateComment(req);
 
-            // 记录在途请求
             if (methodKey != null && !methodKey.isBlank()) {
-                IN_FLIGHT_BY_METHOD.put(methodKey, new InFlightRecord(requestId, future));
+                IN_FLIGHT_BY_METHOD.put(methodKey, new InFlightRecord(requestId, future, fingerprint));
                 future.whenComplete((r, ex) -> IN_FLIGHT_BY_METHOD.remove(methodKey));
             }
 
@@ -118,13 +138,6 @@ public class CommentGeneratorClient {
     }
 
     /**
-     * 兼容旧调用：不按方法去重，不取消前序请求
-     */
-    public static String generateComment(MethodContext data, GenerateOptions options) {
-        return generateComment(null, data, options, false);
-    }
-
-    /**
      * 取消指定方法上正在进行的生成请求（并通知后端取消）
      */
     public static void cancelForMethod(String methodKey) {
@@ -136,13 +149,6 @@ public class CommentGeneratorClient {
         }
         record.future.cancel(true);
         log.info("已取消方法 {} 的在途注释生成请求, requestId={}", methodKey, record.requestId);
-    }
-
-    /**
-     * 是否有指定方法的在途注释生成请求
-     */
-    public static boolean hasInFlightForMethod(String methodKey) {
-        return methodKey != null && !methodKey.isBlank() && IN_FLIGHT_BY_METHOD.containsKey(methodKey);
     }
 
     public static List<String> getAvailableModels() {
