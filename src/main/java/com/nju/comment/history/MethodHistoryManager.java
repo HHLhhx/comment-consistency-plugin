@@ -64,8 +64,10 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                 // 无currentComment，生成currentComment，更新历史记录
                 log.info("status: new method without comment");
                 MethodContext context = new MethodContext("", "", curMethod);
-                String newComment = TextProcessUtil.processComment(commentGenerator.apply(context));
+                String raw = commentGenerator.apply(context);
+                if (raw == null) return;
 
+                String newComment = TextProcessUtil.processComment(raw);
                 MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, null);
                 r.createMethodPointer(method);
                 r.setFilePath(path);
@@ -98,8 +100,10 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                     // oldComment为空，更新历史记录
                     log.info("status: method changed and both comments empty");
                     MethodContext context = new MethodContext("", "", curMethod);
-                    String newComment = TextProcessUtil.processComment(commentGenerator.apply(context));
+                    String raw = commentGenerator.apply(context);
+                    if (raw == null) return;
 
+                    String newComment = TextProcessUtil.processComment(raw);
                     record.setOldMethod(curMethod);
                     record.setStagedComment(newComment);
                     record.setTag(1);
@@ -107,8 +111,10 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                     // currentComment与oldComment相同，生成currentComment，更新历史记录
                     log.info("status: method changed");
                     MethodContext context = new MethodContext(record.getOldMethod(), record.getOldComment(), curMethod);
-                    String newComment = TextProcessUtil.processComment(commentGenerator.apply(context));
+                    String raw = commentGenerator.apply(context);
+                    if (raw == null) return;
 
+                    String newComment = TextProcessUtil.processComment(raw);
                     record.setOldMethod(curMethod);
                     record.setStagedComment(newComment);
                     record.setTag(1);

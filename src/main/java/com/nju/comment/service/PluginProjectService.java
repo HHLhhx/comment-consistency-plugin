@@ -170,6 +170,9 @@ public final class PluginProjectService implements Disposable {
                                 return "TODO";
                             }
                             String generated = CommentGeneratorClient.generateComment(methodKey, context, options);
+                            if (generated == null) {
+                                return null;
+                            }
                             return TextProcessUtil.processComment(generated);
                         });
             } catch (Exception ex) {
