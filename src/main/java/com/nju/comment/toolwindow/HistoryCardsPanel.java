@@ -29,8 +29,8 @@ public class HistoryCardsPanel {
     private final JToggleButton autoDeleteBtn;
 
     private final Project project;
-    private final MethodHistoryRepositoryImpl repository = MethodHistoryRepositoryImpl.getInstance();
-    private final MethodHistoryManager methodHistoryManager = new MethodHistoryManager(repository);
+    private final MethodHistoryManager methodHistoryManager =
+            new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
 
     private ScheduledExecutorService autoDeleteScheduler;
     private ScheduledFuture<?> autoDeleteFuture;
@@ -87,7 +87,7 @@ public class HistoryCardsPanel {
 
     private void pollAndRefresh() {
         // 获取所有tag = 1且注释已更改的记录
-        List<MethodRecord> staged = repository.findAll().stream()
+        List<MethodRecord> staged = methodHistoryManager.findAll().stream()
                 .filter(r -> r.getTag() == 1)
                 .filter(r ->
                         !TextProcessUtil.safeTrimNullable(r.getOldComment())
@@ -107,7 +107,7 @@ public class HistoryCardsPanel {
     private void refreshList(List<MethodRecord> staged) {
         listPanel.removeAll();
         for (MethodRecord record : staged) {
-            MethodHistoryCard card = new MethodHistoryCard(project, record, repository);
+            MethodHistoryCard card = new MethodHistoryCard(project, record);
             listPanel.add(card.getRoot());
             listPanel.add(Box.createVerticalStrut(10));
         }

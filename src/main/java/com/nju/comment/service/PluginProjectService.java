@@ -13,10 +13,12 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.GenerateOptions;
+import com.nju.comment.dto.MethodStatus;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.util.TextProcessUtil;
 import com.nju.comment.util.MethodRecordUtil;
+import com.nju.comment.dto.MethodRecord;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -164,17 +166,53 @@ public final class PluginProjectService implements Disposable {
             String methodKey = MethodRecordUtil.buildMethodKey(method);
             try {
                 GenerateOptions options = new GenerateOptions(CommentGeneratorClient.getSelectedModel());
-                methodHistoryManager.updateMethodHistory(method,
-                        context -> {
-                            if (context.getOldMethod() == null || context.getOldMethod().isBlank()) {
-                                return "TODO";
+                methodHistoryManager.updateMethodHistoryAsync(method, (context, status) -> {
+
+                    // 立即更新已暂存的方法体，清除tag，表示正在生成中
+                    MethodRecord r = methodHistoryManager.findByKey(methodKey);
+                    if (r != null) {
+                        r.setStagedMethod(TextProcessUtil.processMethod(context.getNewMethod()));
+                        r.setTag(0);
+                        methodHistoryManager.save(r);
+                    }
+
+                    // 使用异步回调方式生成注释，不阻塞UI线程
+                    CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {
+                        if (generatedComment == null) {
+                            return;
+                        }
+                        String processedComment = TextProcessUtil.processComment(generatedComment);
+
+                        // 在后台线程中更新历史记录
+                        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                            MethodRecord record = methodHistoryManager.findByKey(methodKey);
+                            if (status.equals(MethodStatus.METHOD_CHANGED)) {
+                                if (record != null) {
+                                    record.setStagedMethod(context.getNewMethod());
+                                    record.setStagedComment(processedComment);
+                                    record.setTag(1);
+                                    record.touch();
+                                    methodHistoryManager.save(record);
+                                }
+                            } else if (status.equals(MethodStatus.METHOD_CHANGED_BOTH_EMPTY_COMMENT)) {
+                                if (record != null) {
+                                    record.setOldMethod(context.getNewMethod());
+                                    record.setStagedComment(processedComment);
+                                    record.setTag(1);
+                                    record.touch();
+                                    methodHistoryManager.save(record);
+                                }
+                            } else if (status.equals(MethodStatus.NEW_METHOD_WITHOUT_COMMENT)) {
+                                if (record != null) {
+                                    record.setStagedComment(processedComment);
+                                    record.setTag(1);
+                                    record.touch();
+                                    methodHistoryManager.save(record);
+                                }
                             }
-                            String generated = CommentGeneratorClient.generateComment(methodKey, context, options);
-                            if (generated == null) {
-                                return null;
-                            }
-                            return TextProcessUtil.processComment(generated);
                         });
+                    });
+                });
             } catch (Exception ex) {
                 log.warn("刷新方法历史记录失败，方法签名：{}", methodKey, ex);
             }

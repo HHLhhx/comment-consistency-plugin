@@ -1,5 +1,6 @@
 package com.nju.comment.client.global;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.GenerateOptions;
 import com.nju.comment.dto.MethodContext;
@@ -36,16 +37,100 @@ public class CommentGeneratorClient {
     @Getter
     private static volatile String selectedModel = null;
 
-    private record InFlightRecord(String requestId, CompletableFuture<CommentResponse> future, String contentFingerprint) {
+    private record InFlightRecord(String requestId, CompletableFuture<CommentResponse> future,
+                                  String contentFingerprint) {
     }
 
-    /** 用于判断同一方法下是「重复触发」还是「修改后再触发」。重复触发以最初为准；修改后再触发以最近为准。 */
+    /**
+     * 用于判断同一方法下是「重复触发」还是「修改后再触发」。重复触发以最初为准；修改后再触发以最近为准。
+     */
     private static String contentFingerprint(MethodContext ctx) {
         if (ctx == null) return "";
         String o = TextProcessUtil.safeTrimNullable(ctx.getOldMethod());
         String c = TextProcessUtil.safeTrimNullable(ctx.getOldComment());
         String n = TextProcessUtil.safeTrimNullable(ctx.getNewMethod());
         return o + FINGERPRINT_DELIM + c + FINGERPRINT_DELIM + n;
+    }
+
+    /**
+     * 按方法维度的生成注释。异步模式，不阻塞调用线程。
+     * 同一方法：重复触发（内容未变）以最初为准并跳过本次；在返回前又修改并再触发则以最近为准，会先取消在途请求再发新请求。
+     *
+     * @param methodKey 方法唯一键，为 null 时不按方法做在途去重/取消
+     * @param data      方法上下文，用于计算内容指纹
+     * @param options   生成选项
+     * @param callback  异步回调，接收生成的注释文本（取消/跳过/失败时为null）
+     */
+    public static void generateCommentAsync(String methodKey, MethodContext data, GenerateOptions options,
+                                            java.util.function.Consumer<String> callback) {
+        // 初始化检查
+        initCheck();
+
+        // 计算内容指纹
+        String fingerprint = contentFingerprint(data);
+        if (methodKey != null && !methodKey.isBlank()) {
+            InFlightRecord existing = IN_FLIGHT_BY_METHOD.get(methodKey);
+            if (existing != null) {
+                if (Objects.equals(existing.contentFingerprint(), fingerprint)) {
+                    log.info("方法 {} 已有相同内容的在途请求，以最初为准，跳过本次", methodKey);
+                    callback.accept(null);
+                    return;
+                }
+                log.info("方法 {} 在途请求内容已变更，以最近为准，取消在途并发送新请求", methodKey);
+                cancelForMethod(methodKey);
+            }
+        }
+
+        // 构建请求并发送（在后台线程中处理）
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            try {
+                String requestId = UUID.randomUUID().toString();
+                log.info("开始生成注释, requestId={}, methodKey={}", requestId, methodKey);
+                CommentRequest req = CommentRequest.builder()
+                        .oldMethod(data.getOldMethod())
+                        .oldComment(data.getOldComment())
+                        .newMethod(data.getNewMethod())
+                        .modelName(options.getModelName())
+                        .clientRequestId(requestId)
+                        .build();
+
+                CompletableFuture<CommentResponse> future = client.generateComment(req);
+
+                if (methodKey != null && !methodKey.isBlank()) {
+                    IN_FLIGHT_BY_METHOD.put(methodKey, new InFlightRecord(requestId, future, fingerprint));
+                    future.whenComplete((r, ex) -> IN_FLIGHT_BY_METHOD.remove(methodKey));
+                }
+
+                // 在后台线程上等待结果，不阻塞UI线程
+                future.whenComplete((resp, ex) -> {
+                    try {
+                        if (ex != null) {
+                            if (ex instanceof CancellationException) {
+                                log.info("注释生成被取消, methodKey={}", methodKey);
+                            } else {
+                                log.error("注释生成服务异常", ex);
+                            }
+                            callback.accept(null);
+                            return;
+                        }
+
+                        if (resp != null && resp.isSuccess()) {
+                            log.debug("注释生成成功: {}", resp.getGeneratedComment());
+                            callback.accept(resp.getGeneratedComment());
+                        } else {
+                            log.warn("注释生成失败");
+                            callback.accept(null);
+                        }
+                    } catch (Exception e) {
+                        log.error("处理注释生成结果异常", e);
+                        callback.accept(null);
+                    }
+                });
+            } catch (Exception e) {
+                log.error("生成注释异常", e);
+                callback.accept(null);
+            }
+        });
     }
 
     public static void init(String baseUrl) {
@@ -70,70 +155,6 @@ public class CommentGeneratorClient {
                     .maxConcurrentRequests(Constant.CLIENT_MAX_CONNECTION_REQUESTS);
             client = clientBuilder.build();
             log.info("CommentGeneratorClient 初始化成功");
-        }
-    }
-
-    /**
-     * 按方法维度的生成注释。
-     * 同一方法：重复触发（内容未变）以最初为准并跳过本次；在返回前又修改并再触发则以最近为准，会先取消在途请求再发新请求。
-     *
-     * @param methodKey 方法唯一键，为 null 时不按方法做在途去重/取消
-     * @param data      方法上下文，用于计算内容指纹
-     * @param options   生成选项
-     * @return 生成的注释文本，取消/跳过/失败时返回 null
-     */
-    public static String generateComment(String methodKey, MethodContext data, GenerateOptions options) {
-        // 初始化检查
-        initCheck();
-
-        // 计算内容指纹
-        String fingerprint = contentFingerprint(data);
-        if (methodKey != null && !methodKey.isBlank()) {
-            InFlightRecord existing = IN_FLIGHT_BY_METHOD.get(methodKey);
-            if (existing != null) {
-                if (Objects.equals(existing.contentFingerprint(), fingerprint)) {
-                    log.info("方法 {} 已有相同内容的在途请求，以最初为准，跳过本次", methodKey);
-                    return null;
-                }
-                log.info("方法 {} 在途请求内容已变更，以最近为准，取消在途并发送新请求", methodKey);
-                cancelForMethod(methodKey);
-            }
-        }
-
-        // 构建请求并发送
-        try {
-            String requestId = UUID.randomUUID().toString();
-            log.info("开始生成注释, requestId={}, methodKey={}", requestId, methodKey);
-            CommentRequest req = CommentRequest.builder()
-                    .oldMethod(data.getOldMethod())
-                    .oldComment(data.getOldComment())
-                    .newMethod(data.getNewMethod())
-                    .modelName(options.getModelName())
-                    .clientRequestId(requestId)
-                    .build();
-
-            CompletableFuture<CommentResponse> future = client.generateComment(req);
-
-            if (methodKey != null && !methodKey.isBlank()) {
-                IN_FLIGHT_BY_METHOD.put(methodKey, new InFlightRecord(requestId, future, fingerprint));
-                future.whenComplete((r, ex) -> IN_FLIGHT_BY_METHOD.remove(methodKey));
-            }
-
-            CommentResponse resp = future.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-
-            if (resp != null && resp.isSuccess()) {
-                log.debug("注释生成成功: {}", resp.getGeneratedComment());
-                return resp.getGeneratedComment();
-            }
-
-            log.warn("注释生成失败");
-            return null;
-        } catch (CancellationException e) {
-            log.info("注释生成被取消, methodKey={}", methodKey);
-            return null;
-        } catch (Exception e) {
-            log.error("注释生成服务异常", e);
-            return null;
         }
     }
 

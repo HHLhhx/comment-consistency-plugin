@@ -12,6 +12,7 @@ import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.util.ui.JBUI;
 import com.nju.comment.dto.MethodRecord;
+import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import lombok.Getter;
 
@@ -27,12 +28,12 @@ public class MethodHistoryCard {
     private final JPanel root;
     private final MethodRecord record;
     private final Project project;
-    private final MethodHistoryRepositoryImpl repository;
+    private final MethodHistoryManager methodHistoryManager =
+            new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
 
-    public MethodHistoryCard(Project project, MethodRecord record, MethodHistoryRepositoryImpl repository) {
+    public MethodHistoryCard(Project project, MethodRecord record) {
         this.project = project;
         this.record = record;
-        this.repository = repository;
         this.root = buildCard();
     }
 
@@ -153,15 +154,18 @@ public class MethodHistoryCard {
                 method.addBefore(newComment, method.getFirstChild());
             }
 
+            record.revertStagedOldMethod();
             record.revertStagedOldComment();
             record.setTag(0);
-            repository.save(record);
+            methodHistoryManager.save(record);
         });
     }
 
     private void onIgnore() {
-        record.clearStaged();
+        record.revertStagedOldMethod();
+        record.clearStagedMethod();
+        record.clearStagedComment();
         record.setTag(0);
-        repository.save(record);
+        methodHistoryManager.save(record);
     }
 }

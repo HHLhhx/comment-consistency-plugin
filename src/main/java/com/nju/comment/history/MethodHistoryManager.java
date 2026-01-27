@@ -13,12 +13,19 @@ import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
-import java.util.function.Function;
+import java.util.function.BiConsumer;
 
 @Slf4j
 public record MethodHistoryManager(MethodHistoryRepository repository) {
 
-    public void updateMethodHistory(PsiMethod method, Function<MethodContext, String> commentGenerator) {
+    /**
+     * 异步更新方法历史记录
+     *
+     * @param method                当前方法
+     * @param commentGeneratorAsync 用于生成注释的异步回调函数，接受MethodContext和MethodStatus两个参数
+     */
+    public void updateMethodHistoryAsync(PsiMethod method, BiConsumer<MethodContext, MethodStatus> commentGeneratorAsync) {
+        // 在ReadAction中获取方法相关信息，避免阻塞UI线程
         Object[] info = ReadAction.compute(() -> {
             String path = MethodRecordUtil.getFilePath(method);
             String qualifiedName = MethodRecordUtil.getQualifiedNameContainClass(method);
@@ -46,6 +53,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         curComment = TextProcessUtil.processComment(curComment);
         curMethod = TextProcessUtil.processMethod(curMethod);
 
+        // 查找历史记录
         String key = MethodRecordUtil.buildMethodKey(qualifiedName, signature);
         MethodRecord record = repository.findByKey(key);
 
@@ -63,24 +71,24 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
             } else {
                 // 无currentComment，生成currentComment，更新历史记录
                 log.info("status: new method without comment");
-                MethodContext context = new MethodContext("", "", curMethod);
-                String raw = commentGenerator.apply(context);
-                if (raw == null) return;
 
-                String newComment = TextProcessUtil.processComment(raw);
-                MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, null);
+                MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, "");
                 r.createMethodPointer(method);
                 r.setFilePath(path);
-                r.setStagedComment(newComment);
-                r.setTag(1);
+                r.setTag(0);
                 repository.save(r);
+
+                // 异步调用，不阻塞
+                MethodContext context = new MethodContext("", "", curMethod);
+                commentGeneratorAsync.accept(context, MethodStatus.NEW_METHOD_WITHOUT_COMMENT);
             }
         } else {
             // 历史记录存在
             String oldMethod = TextProcessUtil.processMethod(record.getOldMethod());
             String oldComment = TextProcessUtil.processComment(record.getOldComment());
+            String stagedMethod = TextProcessUtil.processMethod(record.getStagedMethod());
 
-            if (oldMethod.equals(curMethod)) {
+            if (curMethod.equals(oldMethod) || curMethod.equals(stagedMethod)) {
                 // currentMethod与oldMethod相同
                 if (oldComment.equals(curComment)) {
                     // currentComment与oldComment相同，不处理
@@ -90,7 +98,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                     // currentComment与oldComment不同，用currentComment更新历史记录
                     log.info("status: comment changed");
                     record.setOldComment(curComment);
-                    record.clearStaged();
+                    record.clearStagedComment();
                     record.setTag(0);
                     repository.save(record);
                 }
@@ -99,37 +107,88 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                 if (oldComment.isEmpty() && curComment.isEmpty()) {
                     // oldComment为空，更新历史记录
                     log.info("status: method changed and both comments empty");
-                    MethodContext context = new MethodContext("", "", curMethod);
-                    String raw = commentGenerator.apply(context);
-                    if (raw == null) return;
 
-                    String newComment = TextProcessUtil.processComment(raw);
-                    record.setOldMethod(curMethod);
-                    record.setStagedComment(newComment);
-                    record.setTag(1);
+                    // 异步调用，不阻塞
+                    MethodContext context = new MethodContext("", "", curMethod);
+                    commentGeneratorAsync.accept(context, MethodStatus.METHOD_CHANGED_BOTH_EMPTY_COMMENT);
                 } else if (oldComment.equals(curComment)) {
                     // currentComment与oldComment相同，生成currentComment，更新历史记录
                     log.info("status: method changed");
-                    MethodContext context = new MethodContext(record.getOldMethod(), record.getOldComment(), curMethod);
-                    String raw = commentGenerator.apply(context);
-                    if (raw == null) return;
 
-                    String newComment = TextProcessUtil.processComment(raw);
-                    record.setOldMethod(curMethod);
-                    record.setStagedComment(newComment);
-                    record.setTag(1);
+                    // 异步调用，不阻塞
+                    MethodContext context = new MethodContext(record.getOldMethod(), record.getOldComment(), curMethod);
+                    commentGeneratorAsync.accept(context, MethodStatus.METHOD_CHANGED);
                 } else {
                     // currentComment与oldComment不同，用currentComment和currentMethod更新历史记录
                     log.info("status: both changed");
                     record.setOldMethod(curMethod);
                     record.setOldComment(curComment);
-                    record.clearStaged();
+                    record.clearStagedComment();
                     record.setTag(0);
+                    record.touch();
+                    repository.save(record);
                 }
-                record.touch();
-                repository.save(record);
             }
         }
+    }
+
+    /**
+     * 清理已删除方法的历史记录
+     *
+     * @param methods 当前存在的方法列表
+     */
+    public void clearDeletedMethodHistories(List<PsiMethod> methods) {
+        List<String> existingMethods = ReadAction.compute(() ->
+                methods.stream()
+                        .map(MethodRecordUtil::buildMethodKey)
+                        .filter(s -> !s.isBlank())
+                        .toList()
+        );
+
+        List<MethodRecord> allRecords = repository.findAll();
+        for (MethodRecord record : allRecords) {
+            if (!existingMethods.contains(record.getKey())) {
+                log.info("删除已不存在的方法历史记录，signature: {}", record.getKey());
+                repository.deleteByKey(record.getKey());
+            }
+        }
+    }
+
+    /**
+     * 根据key查找方法历史记录
+     *
+     * @param key 方法唯一标识符
+     * @return 方法历史记录
+     */
+    public MethodRecord findByKey(String key) {
+        return repository.findByKey(key);
+    }
+
+    /**
+     * 保存方法历史记录
+     *
+     * @param record 方法历史记录
+     */
+    public void save(MethodRecord record) {
+        repository.save(record);
+    }
+
+    /**
+     * 根据key删除方法历史记录
+     *
+     * @param key 方法唯一标识符
+     */
+    public void deleteByKey(String key) {
+        repository.deleteByKey(key);
+    }
+
+    /**
+     * 查找所有方法历史记录
+     *
+     * @return 方法历史记录列表
+     */
+    public List<MethodRecord> findAll() {
+        return repository.findAll();
     }
 
     private static @NotNull String getMethodTextWithoutComments(PsiMethod method) {
@@ -148,23 +207,9 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         return mtd;
     }
 
-    public void clearDeletedMethodHistories(List<PsiMethod> methods) {
-        List<String> existingMethods = ReadAction.compute(() ->
-                methods.stream()
-                        .map(MethodRecordUtil::buildMethodKey)
-                        .filter(s -> !s.isBlank())
-                        .toList()
-        );
-
-        List<MethodRecord> allRecords = repository.findAll();
-        for (MethodRecord record : allRecords) {
-            if (!existingMethods.contains(record.getKey())) {
-                log.info("删除已不存在的方法历史记录，signature: {}", record.getKey());
-                repository.deleteByKey(record.getKey());
-            }
-        }
-    }
-
+    /**
+     * 打印所有方法历史记录（用于调试）
+     */
     public void printAllMethodRecords() {
         for (MethodRecord record : repository.findAll()) {
             log.info("""
@@ -174,16 +219,19 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                             {}
                             oldComment:\s
                             {}
+                            stagedMethod:\s
+                            {}
                             stagedComment:\s
                             {}
-                            updatedAt: {}
                             tag: {}
+                            updatedAt: {}
                             filePath: {}""",
                     record.getKey(),
                     TextProcessUtil.processMethod(record.getOldMethod()),
                     TextProcessUtil.processComment(record.getOldComment()),
+                    TextProcessUtil.processMethod(record.getStagedMethod()),
                     TextProcessUtil.processComment(record.getStagedComment()),
-                    record.getUpdatedAt(), record.getTag(),
+                    record.getTag(), record.getUpdatedAt(),
                     record.getFilePath());
         }
     }

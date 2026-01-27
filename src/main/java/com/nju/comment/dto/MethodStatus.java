@@ -1,0 +1,12 @@
+package com.nju.comment.dto;
+
+public enum MethodStatus {
+    NEW_METHOD_WITHOUT_COMMENT,
+    NEW_METHOD_WITH_COMMENT,
+
+    UNCHANGED,
+    COMMENT_CHANGED,
+    METHOD_CHANGED,
+    METHOD_CHANGED_BOTH_EMPTY_COMMENT,
+    BOTH_CHANGED,
+}

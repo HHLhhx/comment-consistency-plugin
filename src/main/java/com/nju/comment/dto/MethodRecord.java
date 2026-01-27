@@ -22,6 +22,7 @@ public class MethodRecord {
     String qualifiedNameContainClass;
     String signature;
 
+    String stagedMethod;
     String stagedComment;
 
     public MethodRecord(String qualifiedNameContainClass, String signature, String oldMethod, String oldComment) {
@@ -53,8 +54,21 @@ public class MethodRecord {
         }
     }
 
-    public void clearStaged() {
+    public void clearStagedComment() {
         this.stagedComment = null;
+        touch();
+    }
+
+    public void revertStagedOldMethod() {
+        if (this.stagedMethod != null) {
+            this.oldMethod = this.stagedMethod;
+            this.stagedMethod = null;
+            touch();
+        }
+    }
+
+    public void clearStagedMethod() {
+        this.stagedMethod = null;
         touch();
     }
 }
