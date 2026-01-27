@@ -3,6 +3,7 @@ package com.nju.comment.client.global;
 import com.intellij.openapi.application.ApplicationManager;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.GenerateOptions;
+import com.nju.comment.dto.InFlightRecord;
 import com.nju.comment.dto.MethodContext;
 import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.response.CommentResponse;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 
 @Slf4j
 public class CommentGeneratorClient {
@@ -36,10 +38,6 @@ public class CommentGeneratorClient {
 
     @Getter
     private static volatile String selectedModel = null;
-
-    private record InFlightRecord(String requestId, CompletableFuture<CommentResponse> future,
-                                  String contentFingerprint) {
-    }
 
     /**
      * 用于判断同一方法下是「重复触发」还是「修改后再触发」。重复触发以最初为准；修改后再触发以最近为准。
@@ -62,7 +60,7 @@ public class CommentGeneratorClient {
      * @param callback  异步回调，接收生成的注释文本（取消/跳过/失败时为null）
      */
     public static void generateCommentAsync(String methodKey, MethodContext data, GenerateOptions options,
-                                            java.util.function.Consumer<String> callback) {
+                                            Consumer<String> callback) {
         // 初始化检查
         initCheck();
 
@@ -71,12 +69,12 @@ public class CommentGeneratorClient {
         if (methodKey != null && !methodKey.isBlank()) {
             InFlightRecord existing = IN_FLIGHT_BY_METHOD.get(methodKey);
             if (existing != null) {
-                if (Objects.equals(existing.contentFingerprint(), fingerprint)) {
-                    log.info("方法 {} 已有相同内容的在途请求，以最初为准，跳过本次", methodKey);
+                if (Objects.equals(existing.getContentFingerprint(), fingerprint)) {
+                    log.info("方法 {} 已有相同内容的在途请求，跳过本次", methodKey);
                     callback.accept(null);
                     return;
                 }
-                log.info("方法 {} 在途请求内容已变更，以最近为准，取消在途并发送新请求", methodKey);
+                log.info("方法 {} 请求内容已变更，取消在途并发送新请求", methodKey);
                 cancelForMethod(methodKey);
             }
         }
@@ -96,6 +94,7 @@ public class CommentGeneratorClient {
 
                 CompletableFuture<CommentResponse> future = client.generateComment(req);
 
+                // 记录在途请求
                 if (methodKey != null && !methodKey.isBlank()) {
                     IN_FLIGHT_BY_METHOD.put(methodKey, new InFlightRecord(requestId, future, fingerprint));
                     future.whenComplete((r, ex) -> IN_FLIGHT_BY_METHOD.remove(methodKey));
@@ -105,7 +104,11 @@ public class CommentGeneratorClient {
                 future.whenComplete((resp, ex) -> {
                     try {
                         if (ex != null) {
-                            if (ex instanceof CancellationException) {
+                            // 解析真实异常
+                            Throwable t = ex instanceof CompletionException && ex.getCause() != null
+                                    ? ex.getCause()
+                                    : ex;
+                            if (t instanceof CancellationException) {
                                 log.info("注释生成被取消, methodKey={}", methodKey);
                             } else {
                                 log.error("注释生成服务异常", ex);
@@ -166,10 +169,10 @@ public class CommentGeneratorClient {
         InFlightRecord record = IN_FLIGHT_BY_METHOD.remove(methodKey);
         if (record == null) return;
         if (client != null) {
-            client.cancelRequest(record.requestId);
+            client.cancelRequest(record.getRequestId());
         }
-        record.future.cancel(true);
-        log.info("已取消方法 {} 的在途注释生成请求, requestId={}", methodKey, record.requestId);
+        record.getFuture().cancel(true);
+        log.info("已取消方法 {} 的在途注释生成请求, requestId={}", methodKey, record.getRequestId());
     }
 
     public static List<String> getAvailableModels() {

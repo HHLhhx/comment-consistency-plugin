@@ -33,5 +33,8 @@ public class CommentResponse {
     private String errorMessage;
 
     @Builder.Default
+    private boolean cancelled = false;
+
+    @Builder.Default
     private Map<String, Object> metadata = Map.of();
 }

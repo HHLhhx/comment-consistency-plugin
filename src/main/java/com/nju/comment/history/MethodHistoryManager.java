@@ -65,6 +65,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
 
                 MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, curComment);
                 r.createMethodPointer(method);
+                r.setStagedMethod(curMethod);
                 r.setFilePath(path);
                 r.setTag(0);
                 repository.save(r);
@@ -74,6 +75,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
 
                 MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, "");
                 r.createMethodPointer(method);
+                r.setStagedMethod(curMethod);
                 r.setFilePath(path);
                 r.setTag(0);
                 repository.save(r);
@@ -93,11 +95,13 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                 if (oldComment.equals(curComment)) {
                     // currentComment与oldComment相同，不处理
                     log.info("status: unchanged");
+                    record.setStagedMethod(curMethod);
                     repository.save(record);
                 } else {
                     // currentComment与oldComment不同，用currentComment更新历史记录
                     log.info("status: comment changed");
                     record.setOldComment(curComment);
+                    record.setStagedMethod(curMethod);
                     record.clearStagedComment();
                     record.setTag(0);
                     repository.save(record);
@@ -123,6 +127,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                     log.info("status: both changed");
                     record.setOldMethod(curMethod);
                     record.setOldComment(curComment);
+                    record.setStagedMethod(curMethod);
                     record.clearStagedComment();
                     record.setTag(0);
                     record.touch();
@@ -149,7 +154,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         for (MethodRecord record : allRecords) {
             if (!existingMethods.contains(record.getKey())) {
                 log.info("删除已不存在的方法历史记录，signature: {}", record.getKey());
-                repository.deleteByKey(record.getKey());
+                deleteByKey(record.getKey());
             }
         }
     }
