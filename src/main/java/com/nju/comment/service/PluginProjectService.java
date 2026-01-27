@@ -44,6 +44,9 @@ public final class PluginProjectService implements Disposable {
         this.methodHistoryManager = new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
     }
 
+    /**
+     * 项目启动时初始化
+     */
     public void initialize() {
         log.info("项目启动初始化");
         CommentGeneratorClient.init(DEFAULT_BASE_URL);
@@ -53,10 +56,16 @@ public final class PluginProjectService implements Disposable {
         });
     }
 
+    /**
+     * 刷新项目中所有方法历史记录
+     */
     public void refreshAllMethodHistories() {
         ApplicationManager.getApplication().executeOnPooledThread(this::doRefreshAllMethodHistories);
     }
 
+    /**
+     * 刷新项目中所有方法历史记录的具体实现
+     */
     private void doRefreshAllMethodHistories() {
         log.info("刷新项目中所有方法历史记录");
         List<PsiMethod> methods = collectAllMethods(project);
@@ -68,6 +77,12 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
+    /**
+     * 收集项目中所有方法
+     *
+     * @param project 当前项目
+     * @return 方法列表
+     */
     public List<PsiMethod> collectAllMethods(Project project) {
         return ReadAction.compute(() -> {
             List<PsiMethod> result = new ArrayList<>();
@@ -83,10 +98,20 @@ public final class PluginProjectService implements Disposable {
         });
     }
 
+    /**
+     * 刷新单文件中所有方法历史记录
+     *
+     * @param file 目标文件
+     */
     public void refreshFileMethodHistories(VirtualFile file) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshFileMethodHistories(file));
     }
 
+    /**
+     * 刷新单文件中所有方法历史记录的具体实现
+     *
+     * @param file 目标文件
+     */
     private void doRefreshFileMethodHistories(VirtualFile file) {
         if (file == null || !file.exists() || !"java".equalsIgnoreCase(file.getExtension())) {
             log.warn("文件无效，无法刷新方法历史记录: {}", file);
@@ -110,6 +135,11 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
+    /**
+     * 刷新单方法历史记录
+     *
+     * @param method 目标方法
+     */
     public void refreshMethodHistory(PsiMethod method) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method));
     }
@@ -178,6 +208,12 @@ public final class PluginProjectService implements Disposable {
         });
     }
 
+    /**
+     * 方法有效性校验
+     *
+     * @param method 目标方法
+     * @return 是否有效
+     */
     private static boolean isValid(PsiMethod method) {
         String key = MethodRecordUtil.buildMethodKey(method);
 
@@ -250,6 +286,9 @@ public final class PluginProjectService implements Disposable {
         return true;
     }
 
+    /**
+     * 项目关闭时释放资源
+     */
     @Override
     public void dispose() {
         log.info("项目关闭，释放资源");

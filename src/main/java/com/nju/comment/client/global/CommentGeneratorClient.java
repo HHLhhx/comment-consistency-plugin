@@ -24,14 +24,13 @@ import java.util.function.Consumer;
 @Slf4j
 public class CommentGeneratorClient {
 
-    private static final String FINGERPRINT_DELIM = "\u0001";
-
     private static volatile CommentClient client;
     private static final Object LOCK = new Object();
     private static final Duration TIMEOUT = Duration.ofSeconds(Constant.CLIENT_REQUEST_TIMEOUT_S);
 
     // 方法维度的在途请求记录，用内容指纹区分「重复触发」与「修改后再触发」
     private static final Map<String, InFlightRecord> IN_FLIGHT_BY_METHOD = new ConcurrentHashMap<>();
+    private static final String FINGERPRINT_DELIM = "\u0001";
 
     @Getter
     private static List<String> modelsList;
@@ -40,14 +39,33 @@ public class CommentGeneratorClient {
     private static volatile String selectedModel = null;
 
     /**
-     * 用于判断同一方法下是「重复触发」还是「修改后再触发」。重复触发以最初为准；修改后再触发以最近为准。
+     * 初始化客户端
+     *
+     * @param baseUrl 服务端基础URL，null或空字符串时使用默认值
      */
-    private static String contentFingerprint(MethodContext ctx) {
-        if (ctx == null) return "";
-        String o = TextProcessUtil.safeTrimNullable(ctx.getOldMethod());
-        String c = TextProcessUtil.safeTrimNullable(ctx.getOldComment());
-        String n = TextProcessUtil.safeTrimNullable(ctx.getNewMethod());
-        return o + FINGERPRINT_DELIM + c + FINGERPRINT_DELIM + n;
+    public static void init(String baseUrl) {
+        if (client != null) {
+            log.info("CommentGeneratorClient 已完成初始化");
+            return;
+        }
+        synchronized (LOCK) {
+            if (client != null) {
+                log.info("CommentGeneratorClient 已完成初始化");
+                return;
+            }
+            log.info("CommentGeneratorClient 开始初始化");
+            PluginCommentClient.Builder clientBuilder = PluginCommentClient.builder();
+            if (baseUrl != null && !baseUrl.isEmpty()) {
+                clientBuilder.baseUrl(baseUrl);
+            } else {
+                clientBuilder.baseUrl(Constant.CLIENT_DEFAULT_BASE_URL);
+            }
+            clientBuilder.requestTimeout(TIMEOUT)
+                    .threadPoolSize(Constant.CLIENT_THREAD_POOL_SIZE)
+                    .maxConcurrentRequests(Constant.CLIENT_MAX_CONNECTION_REQUESTS);
+            client = clientBuilder.build();
+            log.info("CommentGeneratorClient 初始化成功");
+        }
     }
 
     /**
@@ -109,7 +127,7 @@ public class CommentGeneratorClient {
                                     ? ex.getCause()
                                     : ex;
                             if (t instanceof CancellationException) {
-                                log.info("注释生成被取消, methodKey={}", methodKey);
+                                log.info("注释生成被取消, requestId={}, methodKey={}", requestId, methodKey);
                             } else {
                                 log.error("注释生成服务异常", ex);
                             }
@@ -118,9 +136,11 @@ public class CommentGeneratorClient {
                         }
 
                         if (resp != null && resp.isSuccess()) {
-                            log.debug("注释生成成功: {}", resp.getGeneratedComment());
+                            // 成功
+                            log.info("注释生成成功:\n{}", resp.getGeneratedComment());
                             callback.accept(resp.getGeneratedComment());
                         } else {
+                            // 失败
                             log.warn("注释生成失败");
                             callback.accept(null);
                         }
@@ -136,29 +156,15 @@ public class CommentGeneratorClient {
         });
     }
 
-    public static void init(String baseUrl) {
-        if (client != null) {
-            log.info("CommentGeneratorClient 已完成初始化");
-            return;
-        }
-        synchronized (LOCK) {
-            if (client != null) {
-                log.info("CommentGeneratorClient 已完成初始化");
-                return;
-            }
-            log.info("CommentGeneratorClient 开始初始化");
-            PluginCommentClient.Builder clientBuilder = PluginCommentClient.builder();
-            if (baseUrl != null && !baseUrl.isEmpty()) {
-                clientBuilder.baseUrl(baseUrl);
-            } else {
-                clientBuilder.baseUrl(Constant.CLIENT_DEFAULT_BASE_URL);
-            }
-            clientBuilder.requestTimeout(TIMEOUT)
-                    .threadPoolSize(Constant.CLIENT_THREAD_POOL_SIZE)
-                    .maxConcurrentRequests(Constant.CLIENT_MAX_CONNECTION_REQUESTS);
-            client = clientBuilder.build();
-            log.info("CommentGeneratorClient 初始化成功");
-        }
+    /**
+     * 用于判断同一方法下是「重复触发」还是「修改后再触发」。重复触发以最初为准；修改后再触发以最近为准。
+     */
+    private static String contentFingerprint(MethodContext ctx) {
+        if (ctx == null) return "";
+        String o = TextProcessUtil.safeTrimNullable(ctx.getOldMethod());
+        String c = TextProcessUtil.safeTrimNullable(ctx.getOldComment());
+        String n = TextProcessUtil.safeTrimNullable(ctx.getNewMethod());
+        return o + FINGERPRINT_DELIM + c + FINGERPRINT_DELIM + n;
     }
 
     /**
@@ -175,6 +181,11 @@ public class CommentGeneratorClient {
         log.info("已取消方法 {} 的在途注释生成请求, requestId={}", methodKey, record.getRequestId());
     }
 
+    /**
+     * 获取可用模型列表
+     *
+     * @return 模型名称列表，失败时返回空列表
+     */
     public static List<String> getAvailableModels() {
         initCheck();
         try {
@@ -196,6 +207,9 @@ public class CommentGeneratorClient {
         }
     }
 
+    /**
+     * 初始化检查
+     */
     private static void initCheck() {
         if (client == null) {
             log.info("CommentGeneratorClient 未初始化，正在初始化默认配置");
@@ -203,11 +217,19 @@ public class CommentGeneratorClient {
         }
     }
 
+    /**
+     * 设置选定模型
+     *
+     * @param selectedModel 选定模型名称
+     */
     public static void setSelectedModel(String selectedModel) {
         log.info("设置选定模型: {}", selectedModel);
         CommentGeneratorClient.selectedModel = selectedModel;
     }
 
+    /**
+     * 关闭客户端，释放资源
+     */
     public static void shutdown() {
         synchronized (LOCK) {
             if (client != null) {

@@ -196,6 +196,12 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         return repository.findAll();
     }
 
+    /**
+     * 获取方法文本内容，去除注释部分
+     *
+     * @param method 方法
+     * @return 方法文本内容
+     */
     private static @NotNull String getMethodTextWithoutComments(PsiMethod method) {
         PsiElement firstChild = method.getFirstChild();
         while (firstChild instanceof PsiComment ||

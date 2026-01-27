@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 
 @Data
@@ -18,9 +17,6 @@ public class CommentResponse {
     private boolean success;
 
     private String generatedComment;
-
-    @Builder.Default
-    private List<String> alternativeComments = List.of();
 
     private String modelUsed;
 
