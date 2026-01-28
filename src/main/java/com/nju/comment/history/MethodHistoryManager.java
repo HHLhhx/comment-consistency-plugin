@@ -60,7 +60,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         if (record == null) {
             // 历史记录不存在（新方法）
             if (!curComment.isEmpty()) {
-                // 有currentComment，用currentComment和currentMethod更新历史记录
+                // 有curComment，用curComment和curMethod更新历史记录
                 log.info("status: new method with comment");
 
                 MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, curComment);
@@ -70,7 +70,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                 r.setTag(0);
                 repository.save(r);
             } else {
-                // 无currentComment，生成currentComment，更新历史记录
+                // 无curComment，先缓存一份record，再生成newComment，更新历史记录
                 log.info("status: new method without comment");
 
                 MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, "");
@@ -91,14 +91,22 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
             String stagedMethod = TextProcessUtil.processMethod(record.getStagedMethod());
 
             if (curMethod.equals(oldMethod) || curMethod.equals(stagedMethod)) {
-                // currentMethod与oldMethod相同
                 if (oldComment.equals(curComment)) {
-                    // currentComment与oldComment相同，不处理
-                    log.info("status: unchanged");
-                    record.setStagedMethod(curMethod);
-                    repository.save(record);
+                    // curComment与oldComment相同
+                    if (curMethod.equals(oldMethod)) {
+                        // curMethod与oldMethod相同，不处理
+                        log.info("status: unchanged");
+                        record.setStagedMethod(curMethod);
+                        record.setTag(0);
+                        repository.save(record);
+                    } else {
+                        // curMethod与oldMethod不同，但curMethod为stagedMethod，待更新
+                        log.info("status: unchanged but to be update");
+                        record.setStagedMethod(curMethod);
+                        repository.save(record);
+                    }
                 } else {
-                    // currentComment与oldComment不同，用currentComment更新历史记录
+                    // curComment与oldComment不同，用curComment更新历史记录
                     log.info("status: comment changed");
                     record.setOldComment(curComment);
                     record.setStagedMethod(curMethod);
@@ -107,23 +115,23 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                     repository.save(record);
                 }
             } else {
-                // currentMethod与oldMethod不同
+                // curMethod与oldMethod不同
                 if (oldComment.isEmpty() && curComment.isEmpty()) {
-                    // oldComment为空，更新历史记录
+                    // oldComment和curComment都为空，更新历史记录
                     log.info("status: method changed and both comments empty");
 
                     // 异步调用，不阻塞
                     MethodContext context = new MethodContext("", "", curMethod);
                     commentGeneratorAsync.accept(context, MethodStatus.METHOD_CHANGED_BOTH_EMPTY_COMMENT);
                 } else if (oldComment.equals(curComment)) {
-                    // currentComment与oldComment相同，生成currentComment，更新历史记录
+                    // curComment与oldComment相同，生成newComment，更新历史记录
                     log.info("status: method changed");
 
                     // 异步调用，不阻塞
                     MethodContext context = new MethodContext(record.getOldMethod(), record.getOldComment(), curMethod);
                     commentGeneratorAsync.accept(context, MethodStatus.METHOD_CHANGED);
                 } else {
-                    // currentComment与oldComment不同，用currentComment和currentMethod更新历史记录
+                    // curComment与oldComment不同，用curComment和curMethod更新历史记录
                     log.info("status: both changed");
                     record.setOldMethod(curMethod);
                     record.setOldComment(curComment);
