@@ -6,9 +6,13 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.javadoc.PsiDocComment;
+import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.dto.*;
-import com.nju.comment.util.TextProcessUtil;
+import com.nju.comment.history.state.MethodStateContext;
+import com.nju.comment.history.state.MethodStateMachine;
+import com.nju.comment.history.state.MethodStateResult;
 import com.nju.comment.util.MethodRecordUtil;
+import com.nju.comment.util.TextProcessUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
@@ -17,6 +21,8 @@ import java.util.function.BiConsumer;
 
 @Slf4j
 public record MethodHistoryManager(MethodHistoryRepository repository) {
+
+    private static final MethodStateMachine STATE_MACHINE = new MethodStateMachine();
 
     /**
      * 异步更新方法历史记录
@@ -53,95 +59,26 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         curComment = TextProcessUtil.processComment(curComment);
         curMethod = TextProcessUtil.processMethod(curMethod);
 
-        // 查找历史记录
+        // 查找历史记录并评估状态
         String key = MethodRecordUtil.buildMethodKey(qualifiedName, signature);
         MethodRecord record = repository.findByKey(key);
 
-        if (record == null) {
-            // 历史记录不存在（新方法）
-            if (!curComment.isEmpty()) {
-                // 有curComment，用curComment和curMethod更新历史记录
-                log.info("status: new method with comment");
+        MethodStateContext ctx = new MethodStateContext(method, record, curMethod, curComment, path, qualifiedName, signature);
+        MethodStateResult result = STATE_MACHINE.evaluate(ctx);
 
-                MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, curComment);
-                r.createMethodPointer(method);
-                r.setStagedMethod(curMethod);
-                r.setFilePath(path);
-                r.setTag(0);
-                repository.save(r);
-            } else {
-                // 无curComment，先缓存一份record，再生成newComment，更新历史记录
-                log.info("status: new method without comment");
+        MethodRecord updatedRecord = result.record();
+        if (updatedRecord != null && (result.recordChanged() || record == null)) {
+            repository.save(updatedRecord);
+        }
 
-                MethodRecord r = new MethodRecord(qualifiedName, signature, curMethod, "");
-                r.createMethodPointer(method);
-                r.setStagedMethod(curMethod);
-                r.setFilePath(path);
-                r.setTag(0);
-                repository.save(r);
+        log.info("methodKey: {}, status: {}", key, result.state().toString());
 
-                // 异步调用，不阻塞
-                MethodContext context = new MethodContext("", "", curMethod);
-                commentGeneratorAsync.accept(context, MethodStatus.NEW_METHOD_WITHOUT_COMMENT);
-            }
-        } else {
-            // 历史记录存在
-            String oldMethod = TextProcessUtil.processMethod(record.getOldMethod());
-            String oldComment = TextProcessUtil.processComment(record.getOldComment());
-            String stagedMethod = TextProcessUtil.processMethod(record.getStagedMethod());
-
-            if (curMethod.equals(oldMethod) || curMethod.equals(stagedMethod)) {
-                if (oldComment.equals(curComment)) {
-                    // curComment与oldComment相同
-                    if (curMethod.equals(oldMethod)) {
-                        // curMethod与oldMethod相同，不处理
-                        log.info("status: unchanged");
-                        record.setStagedMethod(curMethod);
-                        record.setTag(0);
-                        repository.save(record);
-                    } else {
-                        // curMethod与oldMethod不同，但curMethod为stagedMethod，待更新
-                        log.info("status: unchanged but to be update");
-                        record.setStagedMethod(curMethod);
-                        repository.save(record);
-                    }
-                } else {
-                    // curComment与oldComment不同，用curComment更新历史记录
-                    log.info("status: comment changed");
-                    record.setOldComment(curComment);
-                    record.setStagedMethod(curMethod);
-                    record.clearStagedComment();
-                    record.setTag(0);
-                    repository.save(record);
-                }
-            } else {
-                // curMethod与oldMethod不同
-                if (oldComment.isEmpty() && curComment.isEmpty()) {
-                    // oldComment和curComment都为空，更新历史记录
-                    log.info("status: method changed and both comments empty");
-
-                    // 异步调用，不阻塞
-                    MethodContext context = new MethodContext("", "", curMethod);
-                    commentGeneratorAsync.accept(context, MethodStatus.METHOD_CHANGED_BOTH_EMPTY_COMMENT);
-                } else if (oldComment.equals(curComment)) {
-                    // curComment与oldComment相同，生成newComment，更新历史记录
-                    log.info("status: method changed");
-
-                    // 异步调用，不阻塞
-                    MethodContext context = new MethodContext(record.getOldMethod(), record.getOldComment(), curMethod);
-                    commentGeneratorAsync.accept(context, MethodStatus.METHOD_CHANGED);
-                } else {
-                    // curComment与oldComment不同，用curComment和curMethod更新历史记录
-                    log.info("status: both changed");
-                    record.setOldMethod(curMethod);
-                    record.setOldComment(curComment);
-                    record.setStagedMethod(curMethod);
-                    record.clearStagedComment();
-                    record.setTag(0);
-                    record.touch();
-                    repository.save(record);
-                }
-            }
+        if (result.requiresGeneration()) {
+            result.generationContext().ifPresent(methodContext ->
+                    result.generationStatus().ifPresent(status ->
+                            commentGeneratorAsync.accept(methodContext, status)));
+        } else if (result.requiresCancel()) {
+            CommentGeneratorClient.cancelForMethod(key);
         }
     }
 
@@ -161,7 +98,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         List<MethodRecord> allRecords = repository.findAll();
         for (MethodRecord record : allRecords) {
             if (!existingMethods.contains(record.getKey())) {
-                log.info("删除已不存在的方法历史记录，signature: {}", record.getKey());
+                log.info("删除已不存在的方法记录，key: {}", record.getKey());
                 deleteByKey(record.getKey());
             }
         }
@@ -231,27 +168,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
      */
     public void printAllMethodRecords() {
         for (MethodRecord record : repository.findAll()) {
-            log.info("""
-                            
-                            MethodRecord - key: {}
-                            oldMethod:\s
-                            {}
-                            oldComment:\s
-                            {}
-                            stagedMethod:\s
-                            {}
-                            stagedComment:\s
-                            {}
-                            tag: {}
-                            updatedAt: {}
-                            filePath: {}""",
-                    record.getKey(),
-                    TextProcessUtil.processMethod(record.getOldMethod()),
-                    TextProcessUtil.processComment(record.getOldComment()),
-                    TextProcessUtil.processMethod(record.getStagedMethod()),
-                    TextProcessUtil.processComment(record.getStagedComment()),
-                    record.getTag(), record.getUpdatedAt(),
-                    record.getFilePath());
+            System.out.println(record);
         }
     }
 }

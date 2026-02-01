@@ -12,6 +12,7 @@ import java.time.Instant;
 public class MethodRecord {
     String key;
     transient SmartPsiElementPointer<PsiMethod> pointer;
+    MethodStatus status;
 
     String oldMethod;
     String oldComment;
@@ -70,5 +71,21 @@ public class MethodRecord {
     public void clearStagedMethod() {
         this.stagedMethod = null;
         touch();
+    }
+
+    @Override
+    public String toString() {
+        return "MethodRecord===============================================\n" +
+                "key: " + key + "\n" +
+                "status: " + status + "\n" +
+                "oldMethod:\n" + oldMethod + '\n' +
+                "oldComment:\n" + oldComment + '\n' +
+                "stagedMethod:\n" + stagedMethod + '\n' +
+                "stagedComment:\n" + stagedComment + '\n' +
+                "signature: " + signature + '\n' +
+                "filePath: " + filePath + '\n' +
+                "qualifiedNameContainClass: " + qualifiedNameContainClass + '\n' +
+                "updatedAt: " + updatedAt + "\n" +
+                "tag: " + tag + "\n";
     }
 }

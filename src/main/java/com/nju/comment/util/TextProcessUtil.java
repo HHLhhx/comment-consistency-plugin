@@ -15,6 +15,7 @@ public final class TextProcessUtil {
         StringBuilder sb = new StringBuilder();
         for (String line : lines) {
             line = line.trim();
+            if (line.equals("*")) continue;
             if (line.startsWith("/**")) {
                 sb.append(line).append("\n");
             } else {

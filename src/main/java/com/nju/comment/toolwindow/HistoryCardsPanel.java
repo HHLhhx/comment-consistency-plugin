@@ -86,12 +86,9 @@ public class HistoryCardsPanel {
     }
 
     private void pollAndRefresh() {
-        // 获取所有tag = 1且注释已更改的记录
+        // 获取所有 tag = 1 || tag = 4 的记录
         List<MethodRecord> staged = methodHistoryManager.findAll().stream()
-                .filter(r -> r.getTag() == 1)
-                .filter(r ->
-                        !TextProcessUtil.safeTrimNullable(r.getOldComment())
-                                .equals(TextProcessUtil.safeTrimNullable(r.getStagedComment())))
+                .filter(r -> r.getTag() == 1 || r.getTag() == 4)
                 .toList();
 
         // 仅在记录的签名或注释有变化时刷新UI

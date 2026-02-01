@@ -156,15 +156,6 @@ public final class PluginProjectService implements Disposable {
             try {
                 GenerateOptions options = new GenerateOptions(CommentGeneratorClient.getSelectedModel());
                 methodHistoryManager.updateMethodHistoryAsync(method, (context, status) -> {
-
-                    // 立即更新已暂存的方法体，清除tag，表示正在生成中
-                    MethodRecord r = methodHistoryManager.findByKey(methodKey);
-                    if (r != null) {
-                        r.setStagedMethod(TextProcessUtil.processMethod(context.getNewMethod()));
-                        r.setTag(0);
-                        methodHistoryManager.save(r);
-                    }
-
                     // 使用异步回调方式生成注释，不阻塞UI线程
                     CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {
                         if (generatedComment == null) {
@@ -175,29 +166,19 @@ public final class PluginProjectService implements Disposable {
                         // 在后台线程中更新历史记录
                         ApplicationManager.getApplication().executeOnPooledThread(() -> {
                             MethodRecord record = methodHistoryManager.findByKey(methodKey);
-                            if (status.equals(MethodStatus.METHOD_CHANGED)) {
-                                if (record != null) {
-                                    record.setStagedMethod(context.getNewMethod());
-                                    record.setStagedComment(processedComment);
+                            if (record != null) {
+                                record.setStagedComment(processedComment);
+                                if (status.equals(MethodStatus.TO_BE_UPDATE)) {
+                                    // 更新为待更新状态
+                                    record.setStatus(MethodStatus.TO_BE_UPDATE);
                                     record.setTag(1);
-                                    record.touch();
-                                    methodHistoryManager.save(record);
+                                } else if (status.equals(MethodStatus.TO_BE_GENERATE)) {
+                                    // 更新为待生成状态
+                                    record.setStatus(MethodStatus.TO_BE_GENERATE);
+                                    record.setTag(4);
                                 }
-                            } else if (status.equals(MethodStatus.METHOD_CHANGED_BOTH_EMPTY_COMMENT)) {
-                                if (record != null) {
-                                    record.setOldMethod(context.getNewMethod());
-                                    record.setStagedComment(processedComment);
-                                    record.setTag(1);
-                                    record.touch();
-                                    methodHistoryManager.save(record);
-                                }
-                            } else if (status.equals(MethodStatus.NEW_METHOD_WITHOUT_COMMENT)) {
-                                if (record != null) {
-                                    record.setStagedComment(processedComment);
-                                    record.setTag(1);
-                                    record.touch();
-                                    methodHistoryManager.save(record);
-                                }
+                                record.touch();
+                                methodHistoryManager.save(record);
                             }
                         });
                     });
