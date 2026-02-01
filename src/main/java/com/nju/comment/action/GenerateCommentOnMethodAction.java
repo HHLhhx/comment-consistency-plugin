@@ -1,6 +1,7 @@
 package com.nju.comment.action;
 
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -21,14 +22,15 @@ public class GenerateCommentOnMethodAction extends AnAction {
             return;
         }
 
-        PsiFile psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
+        PsiFile psiFile = ReadAction.compute(() ->
+                PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument()));
         if (psiFile == null) {
             return;
         }
 
         int offset = editor.getCaretModel().getOffset();
-        PsiElement element = psiFile.findElementAt(offset);
-        PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
+        PsiElement element = ReadAction.compute(() -> psiFile.findElementAt(offset));
+        PsiMethod method = ReadAction.compute(() -> PsiTreeUtil.getParentOfType(element, PsiMethod.class));
         if (method == null) {
             return;
         }
@@ -46,18 +48,19 @@ public class GenerateCommentOnMethodAction extends AnAction {
     public void update(@NotNull AnActionEvent e) {
         Presentation presentation = e.getPresentation();
 
-        PsiElement element = e.getData(CommonDataKeys.PSI_ELEMENT);
-
-        if (element == null) {
-            PsiFile file = e.getData(CommonDataKeys.PSI_FILE);
-            Caret caret = e.getData(CommonDataKeys.CARET);
-            if (file != null && caret != null) {
-                int offset = caret.getOffset();
-                element = file.findElementAt(offset);
+        boolean visible = ReadAction.compute(() -> {
+            PsiElement element = e.getData(CommonDataKeys.PSI_ELEMENT);
+            if (element == null) {
+                PsiFile file = e.getData(CommonDataKeys.PSI_FILE);
+                Caret caret = e.getData(CommonDataKeys.CARET);
+                if (file != null && caret != null) {
+                    int offset = caret.getOffset();
+                    element = file.findElementAt(offset);
+                }
             }
-        }
+            return PsiTreeUtil.getParentOfType(element, PsiMethod.class) != null;
+        });
 
-        boolean visible = PsiTreeUtil.getParentOfType(element, PsiMethod.class) != null;
         presentation.setEnabledAndVisible(visible);
     }
 }

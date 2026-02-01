@@ -1,6 +1,7 @@
 package com.nju.comment.action;
 
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -19,12 +20,13 @@ public class GenerateCommentOnFileAction extends AnAction {
             return;
         }
 
-        PsiFile psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
+        PsiFile psiFile = ReadAction.compute(() ->
+                PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument()));
         if (psiFile == null) {
             return;
         }
 
-        VirtualFile vf = psiFile.getVirtualFile();
+        VirtualFile vf = ReadAction.compute(psiFile::getVirtualFile);
         if (vf == null) {
             return;
         }
@@ -44,16 +46,11 @@ public class GenerateCommentOnFileAction extends AnAction {
 
         PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
 
-        boolean visible = false;
-        if (psiFile != null) {
+        boolean visible = ReadAction.compute(() -> {
+            if (psiFile == null) return false;
             VirtualFile vf = psiFile.getVirtualFile();
-            if (vf != null) {
-                String ext = vf.getExtension();
-                if (ext != null && ext.equalsIgnoreCase("java")) {
-                    visible = true;
-                }
-            }
-        }
+            return vf != null && "java".equalsIgnoreCase(vf.getExtension());
+        });
 
         presentation.setEnabledAndVisible(visible);
     }

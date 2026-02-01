@@ -1,5 +1,6 @@
 package com.nju.comment.util;
 
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 
@@ -11,16 +12,54 @@ public final class MethodRecordUtil {
     }
 
     public static String buildMethodKey(PsiMethod method) {
-        String qualifiedName = getQualifiedNameContainClass(method);
-        String signature = getMethodSignature(method);
-        return buildMethodKey(qualifiedName, signature);
+        if (method == null) return "";
+        return ReadAction.compute(() -> buildMethodKeyUnsafely(method));
     }
 
     public static String buildMethodKey(String qualifiedName, String signature) {
         return qualifiedName + "#" + signature;
     }
 
-    private static String getParameterTypeText(PsiParameter param) {
+    public static String getQualifiedNameContainClass(PsiMethod method) {
+        if (method == null) return "";
+        return ReadAction.compute(() -> getQualifiedNameContainClassUnsafely(method));
+    }
+
+    public static String getMethodSignature(PsiMethod method) {
+        if (method == null) return "";
+        return ReadAction.compute(() -> getMethodSignatureUnsafely(method));
+    }
+
+    public static String getFilePath(PsiMethod method) {
+        if (method == null) return null;
+        return ReadAction.compute(() -> getFilePathUnsafely(method));
+    }
+
+    private static String buildMethodKeyUnsafely(PsiMethod method) {
+        String qualifiedName = getQualifiedNameContainClassUnsafely(method);
+        String signature = getMethodSignatureUnsafely(method);
+        return buildMethodKey(qualifiedName, signature);
+    }
+
+    private static String getQualifiedNameContainClassUnsafely(PsiMethod method) {
+        if (method == null) return "";
+        PsiClass owner = method.getContainingClass();
+        if (owner == null) return "";
+        String qualifiedName = owner.getQualifiedName();
+        return qualifiedName != null ? qualifiedName : "";
+    }
+
+    private static String getMethodSignatureUnsafely(PsiMethod method) {
+        if (method == null) return "";
+        StringJoiner sj = new StringJoiner(",");
+        for (PsiParameter param : method.getParameterList().getParameters()) {
+            sj.add(getParameterTypeTextUnsafely(param));
+        }
+        return method.getName() + "(" + sj + ")";
+    }
+
+    private static String getParameterTypeTextUnsafely(PsiParameter param) {
+        if (param == null) return "";
         PsiType type = param.getType();
         try {
             return type.getCanonicalText();
@@ -29,24 +68,7 @@ public final class MethodRecordUtil {
         }
     }
 
-    public static String getQualifiedNameContainClass(PsiMethod method) {
-        if (method == null) return "";
-        PsiClass owner = method.getContainingClass();
-        if (owner == null) return "";
-        String qualifiedName = owner.getQualifiedName();
-        return qualifiedName != null ? qualifiedName : "";
-    }
-
-    public static String getMethodSignature(PsiMethod method) {
-        if (method == null) return "";
-        StringJoiner sj = new StringJoiner(",");
-        for (PsiParameter param : method.getParameterList().getParameters()) {
-            sj.add(getParameterTypeText(param));
-        }
-        return method.getName() + "(" + sj + ")";
-    }
-
-    public static String getFilePath(PsiMethod method) {
+    private static String getFilePathUnsafely(PsiMethod method) {
         if (method == null || !method.isValid()) return null;
         PsiFile psiFile = method.getContainingFile();
         if (psiFile == null) return null;

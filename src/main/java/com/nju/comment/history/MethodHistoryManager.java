@@ -31,31 +31,23 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
      * @param commentGeneratorAsync 用于生成注释的异步回调函数，接受MethodContext和MethodStatus两个参数
      */
     public void updateMethodHistoryAsync(PsiMethod method, BiConsumer<MethodContext, MethodStatus> commentGeneratorAsync) {
-        // 在ReadAction中获取方法相关信息，避免阻塞UI线程
-        Object[] info = ReadAction.compute(() -> {
-            String path = MethodRecordUtil.getFilePath(method);
-            String qualifiedName = MethodRecordUtil.getQualifiedNameContainClass(method);
-            String signature = MethodRecordUtil.getMethodSignature(method);
-            PsiDocComment pdc = method.getDocComment();
-            String comment = pdc != null ? pdc.getText().trim() : "";
-
-            String mtd = getMethodTextWithoutComments(method);
-
-            return new Object[]{path, qualifiedName, signature, comment, mtd};
-        });
-
-        String path = (String) info[0];
+        // 提取方法关键信息
+        String path = MethodRecordUtil.getFilePath(method);
         if (path == null) return;
 
-        String qualifiedName = (String) info[1];
+        String qualifiedName = MethodRecordUtil.getQualifiedNameContainClass(method);
         if (qualifiedName == null) return;
 
-        String signature = (String) info[2];
+        String signature = MethodRecordUtil.getMethodSignature(method);
         if (signature == null || signature.isBlank()) return;
 
-        String curComment = (String) info[3];
-        String curMethod = (String) info[4];
+        String curComment = ReadAction.compute(() -> {
+            PsiDocComment pdc = method.getDocComment();
+            return pdc != null ? pdc.getText().trim() : "";
+        });
+        String curMethod = getMethodTextWithoutComments(method);
 
+        // 预处理文本
         curComment = TextProcessUtil.processComment(curComment);
         curMethod = TextProcessUtil.processMethod(curMethod);
 
@@ -63,9 +55,11 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         String key = MethodRecordUtil.buildMethodKey(qualifiedName, signature);
         MethodRecord record = repository.findByKey(key);
 
+        // 构建状态机上下文并评估
         MethodStateContext ctx = new MethodStateContext(method, record, curMethod, curComment, path, qualifiedName, signature);
         MethodStateResult result = STATE_MACHINE.evaluate(ctx);
 
+        // 保存更新后的记录（如有更改）
         MethodRecord updatedRecord = result.record();
         if (updatedRecord != null && (result.recordChanged() || record == null)) {
             repository.save(updatedRecord);
@@ -74,10 +68,12 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         log.info("methodKey: {}, status: {}", key, result.state().toString());
 
         if (result.requiresGeneration()) {
+            // 调用异步注释生成回调
             result.generationContext().ifPresent(methodContext ->
                     result.generationStatus().ifPresent(status ->
                             commentGeneratorAsync.accept(methodContext, status)));
         } else if (result.requiresCancel()) {
+            // 取消在途注释生成请求
             CommentGeneratorClient.cancelForMethod(key);
         }
     }
@@ -148,19 +144,21 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
      * @return 方法文本内容
      */
     private static @NotNull String getMethodTextWithoutComments(PsiMethod method) {
-        PsiElement firstChild = method.getFirstChild();
-        while (firstChild instanceof PsiComment ||
-                firstChild instanceof PsiWhiteSpace) {
-            firstChild = firstChild.getNextSibling();
-        }
+        return ReadAction.compute(() -> {
+            PsiElement firstChild = method.getFirstChild();
+            while (firstChild instanceof PsiComment ||
+                    firstChild instanceof PsiWhiteSpace) {
+                firstChild = firstChild.getNextSibling();
+            }
 
-        String mtd = "";
-        if (firstChild != null) {
-            int methodStartOffset = firstChild.getTextRange().getStartOffset();
-            int endOffset = method.getTextRange().getEndOffset();
-            mtd = method.getContainingFile().getText().substring(methodStartOffset, endOffset).trim();
-        }
-        return mtd;
+            String mtd = "";
+            if (firstChild != null) {
+                int methodStartOffset = firstChild.getTextRange().getStartOffset();
+                int endOffset = method.getTextRange().getEndOffset();
+                mtd = method.getContainingFile().getText().substring(methodStartOffset, endOffset).trim();
+            }
+            return mtd;
+        });
     }
 
     /**

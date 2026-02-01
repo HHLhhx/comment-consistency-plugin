@@ -11,13 +11,10 @@ public class GeneratingState implements MethodState {
 
     @Override
     public boolean matches(MethodStateContext context) {
-        return (context.hasRecord()
-                    && MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(context.getCurMethodStatus())
-                    && context.getRecord().getTag() == 3)
-                || (context.hasRecord()
+        return context.hasRecord()
                     && MethodStatus.GENERATING.equals(context.getCurMethodStatus())
                     && context.commentEqualsOld()
-                    && context.methodEqualsStaged());
+                    && context.methodEqualsStaged();
     }
 
     @Override
