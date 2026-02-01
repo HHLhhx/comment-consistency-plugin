@@ -35,7 +35,7 @@ public final class NewMethodWithCommentState implements MethodState {
         MethodRecord record;
         if (context.hasRecord()) {
             record = context.getRecord();
-            record.setOldMethod(context.getCurrentComment());
+            record.setOldMethod(context.getCurrentMethod());
             record.setOldComment(context.getCurrentComment());
             record.setStagedMethod(context.getCurrentMethod());
             record.clearStagedComment();

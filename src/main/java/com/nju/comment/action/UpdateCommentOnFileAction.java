@@ -10,7 +10,7 @@ import com.intellij.psi.PsiFile;
 import com.nju.comment.service.PluginProjectService;
 import org.jetbrains.annotations.NotNull;
 
-public class GenerateCommentOnFileAction extends AnAction {
+public class UpdateCommentOnFileAction extends AnAction {
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {

@@ -14,7 +14,8 @@ public class GeneratingState implements MethodState {
         return context.hasRecord()
                     && MethodStatus.GENERATING.equals(context.getCurMethodStatus())
                     && context.commentEqualsOld()
-                    && context.methodEqualsStaged();
+                    && context.methodEqualsStaged()
+                    && context.getRecord().getTag() == 3;
     }
 
     @Override

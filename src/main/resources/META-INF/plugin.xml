@@ -36,17 +36,24 @@
     <actions>
         <action id="CommentGenerator.GenerateFromMethod"
                 class="com.nju.comment.action.GenerateCommentOnMethodAction"
+                text="Generate Comment in Method"
+                description="Generate method comment by backend">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut first-keystroke="ctrl alt 1" keymap="$default"/>
+        </action>
+        <action id="CommentGenerator.UpdateFromMethod"
+                class="com.nju.comment.action.UpdateCommentOnMethodAction"
                 text="Update Comment in Method"
                 description="Update method comment by backend">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut first-keystroke="ctrl alt G" keymap="$default"/>
+            <keyboard-shortcut first-keystroke="ctrl alt 2" keymap="$default"/>
         </action>
-        <action id="CommentGenerator.GenerateFromFile"
-                class="com.nju.comment.action.GenerateCommentOnFileAction"
+        <action id="CommentGenerator.UpdateFromFile"
+                class="com.nju.comment.action.UpdateCommentOnFileAction"
                 text="Update Comments in File"
                 description="Update all method comments in current file by backend">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut first-keystroke="ctrl alt H" keymap="$default"/>
+            <keyboard-shortcut first-keystroke="ctrl alt 3" keymap="$default"/>
         </action>
     </actions>
 </idea-plugin>

@@ -5,16 +5,14 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiMethod;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.nju.comment.dto.MethodStatus;
 import com.nju.comment.service.PluginProjectService;
+import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
-public class GenerateCommentOnMethodAction extends AnAction {
+@Slf4j
+public class UpdateCommentOnMethodAction extends AnAction {
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -38,7 +36,7 @@ public class GenerateCommentOnMethodAction extends AnAction {
         }
 
         PluginProjectService service = project.getService(PluginProjectService.class);
-        service.generateComment(method);
+        service.refreshMethodHistory(method);
     }
 
     @Override
@@ -60,14 +58,7 @@ public class GenerateCommentOnMethodAction extends AnAction {
                     element = file.findElementAt(offset);
                 }
             }
-            PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
-            if (method == null) return false;
-
-            Project project = e.getProject();
-            if (project == null) return false;
-            PluginProjectService service = project.getService(PluginProjectService.class);
-            MethodStatus status = service.getMethodStatus(method);
-            return status == MethodStatus.NEW_METHOD_WITHOUT_COMMENT;
+            return PsiTreeUtil.getParentOfType(element, PsiMethod.class) != null;
         });
 
         presentation.setEnabledAndVisible(visible);

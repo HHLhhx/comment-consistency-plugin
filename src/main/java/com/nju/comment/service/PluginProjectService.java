@@ -190,6 +190,63 @@ public final class PluginProjectService implements Disposable {
     }
 
     /**
+     * 生成方法注释
+     * @param method 目标方法
+     */
+    public void generateComment(PsiMethod method) {
+        if (method == null) {
+            log.warn("方法为空，无法生成注释");
+            return;
+        }
+
+        String methodKey = MethodRecordUtil.buildMethodKey(method);
+        MethodRecord record = methodHistoryManager.findByKey(methodKey);
+        if (record == null) {
+            // 方法记录不存在，刷新一次，此时为 NEW_METHOD_WITHOUT_COMMENT 或 NEW_METHOD_WITH_COMMENT 状态
+            doRefreshMethodHistory(method);
+        }
+
+        record = methodHistoryManager.findByKey(methodKey);
+        if (!MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(record.getStatus())) {
+            log.info("方法不处于可生成注释状态，跳过生成：{}", methodKey);
+            return;
+        }
+
+        record.setStatus(MethodStatus.GENERATING);
+        record.setTag(3);
+        record.touch();
+        methodHistoryManager.save(record);
+        refreshMethodHistory(method);
+    }
+
+    /**
+     * 获取方法状态
+     * @param method 目标方法
+     * @return 方法状态
+     */
+    public MethodStatus getMethodStatus(PsiMethod method) {
+        if (method == null) {
+            log.warn("方法为空，无法获取状态");
+            return null;
+        }
+
+        String methodKey = MethodRecordUtil.buildMethodKey(method);
+        MethodRecord record = methodHistoryManager.findByKey(methodKey);
+        if (record == null) {
+            // 方法记录不存在，刷新一次
+            doRefreshMethodHistory(method);
+        }
+
+        record = methodHistoryManager.findByKey(methodKey);
+        if (record == null) {
+            log.warn("方法记录不存在，无法获取状态：{}", methodKey);
+            return null;
+        }
+
+        return record.getStatus();
+    }
+
+    /**
      * 方法有效性校验
      *
      * @param method 目标方法
