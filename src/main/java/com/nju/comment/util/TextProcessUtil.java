@@ -1,5 +1,8 @@
 package com.nju.comment.util;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public final class TextProcessUtil {
 
     private TextProcessUtil() {
@@ -8,14 +11,30 @@ public final class TextProcessUtil {
     public static String processComment(String comment) {
         comment = safeTrimNullable(comment);
 
-        //TODO: 前置处理
+        if (comment.isEmpty()) {
+            log.warn("注释文本为空");
+            return comment;
+        }
+
+        int startIndex = comment.indexOf("/**");
+        if (startIndex < 0) {
+            log.warn("注释文本不符合规范，缺少 /** 开头");
+            return null;
+        }
+        comment = comment.substring(startIndex);
+
+        int endIndex = comment.lastIndexOf("*/");
+        if (endIndex < 0) {
+            log.warn("注释文本不符合规范，缺少 */ 结尾");
+            return null;
+        }
+        comment = comment.substring(0, endIndex + 2);
 
         String[] lines = comment.split("\\n");
 
         StringBuilder sb = new StringBuilder();
         for (String line : lines) {
             line = line.trim();
-            if (line.equals("*")) continue;
             if (line.startsWith("/**")) {
                 sb.append(line).append("\n");
             } else {

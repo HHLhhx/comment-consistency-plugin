@@ -6,10 +6,10 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.ui.components.JBScrollPane;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.MethodRecord;
+import com.nju.comment.dto.MethodStatus;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.service.PluginProjectService;
-import com.nju.comment.util.TextProcessUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -86,9 +86,11 @@ public class HistoryCardsPanel {
     }
 
     private void pollAndRefresh() {
-        // 获取所有 tag = 1 || tag = 4 的记录
+        // 获取所有 TO_BE_GENERATE 和 TO_BE_UPDATE 状态的记录
         List<MethodRecord> staged = methodHistoryManager.findAll().stream()
-                .filter(r -> r.getTag() == 1 || r.getTag() == 4)
+                .filter(r ->
+                        MethodStatus.TO_BE_GENERATE.equals(r.getStatus())
+                                || MethodStatus.TO_BE_UPDATE.equals(r.getStatus()))
                 .toList();
 
         // 仅在记录的签名或注释有变化时刷新UI

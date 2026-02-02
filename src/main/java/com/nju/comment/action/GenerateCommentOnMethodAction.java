@@ -67,7 +67,7 @@ public class GenerateCommentOnMethodAction extends AnAction {
             if (project == null) return false;
             PluginProjectService service = project.getService(PluginProjectService.class);
             MethodStatus status = service.getMethodStatus(method);
-            return status == MethodStatus.NEW_METHOD_WITHOUT_COMMENT;
+            return MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(status);
         });
 
         presentation.setEnabledAndVisible(visible);

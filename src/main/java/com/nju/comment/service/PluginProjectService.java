@@ -171,11 +171,9 @@ public final class PluginProjectService implements Disposable {
                                 if (status.equals(MethodStatus.TO_BE_UPDATE)) {
                                     // 更新为待更新状态
                                     record.setStatus(MethodStatus.TO_BE_UPDATE);
-                                    record.setTag(1);
                                 } else if (status.equals(MethodStatus.TO_BE_GENERATE)) {
                                     // 更新为待生成状态
                                     record.setStatus(MethodStatus.TO_BE_GENERATE);
-                                    record.setTag(4);
                                 }
                                 record.touch();
                                 methodHistoryManager.save(record);
@@ -213,7 +211,6 @@ public final class PluginProjectService implements Disposable {
         }
 
         record.setStatus(MethodStatus.GENERATING);
-        record.setTag(3);
         record.touch();
         methodHistoryManager.save(record);
         refreshMethodHistory(method);

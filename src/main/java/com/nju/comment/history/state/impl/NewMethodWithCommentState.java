@@ -7,10 +7,19 @@ import com.nju.comment.history.state.MethodStateContext;
 import com.nju.comment.history.state.MethodStateResult;
 
 /**
- * 处理已包含注释的全新方法。
+ * 处理已包含注释的新方法
  */
 public final class NewMethodWithCommentState implements MethodState {
 
+    /**
+     * 匹配已包含注释的新方法场景：<br>
+     * 1. 之前没有记录且当前有注释<br>
+     * 2. NEW_METHOD_WITHOUT_COMMENT、GENERATING 或 TO_BE_GENERATE 状态下添加了注释<br>
+     * 3. TO_BE_GENERATE 状态下应用了生成的注释
+     *
+     * @param context 方法状态上下文
+     * @return 是否匹配该状态
+     */
     @Override
     public boolean matches(MethodStateContext context) {
         return (!context.hasRecord()
@@ -27,8 +36,13 @@ public final class NewMethodWithCommentState implements MethodState {
     }
 
     /**
-     * 为新方法创建历史记录，使用当前的方法体和注释。
-     * 不需要生成注释，设置 tag=0 表示正常跟踪。
+     * 处理到达此状态的方法：<br>
+     * 1. 全新带注释方法，创建记录<br>
+     * 2. 如果已有记录，更新方法体和注释，清空暂存注释<br>
+     * 3. 原 GENERATING 状态需取消在途请求
+     *
+     * @param context 方法状态上下文
+     * @return 方法状态处理结果
      */
     @Override
     public MethodStateResult handle(MethodStateContext context) {
@@ -39,7 +53,6 @@ public final class NewMethodWithCommentState implements MethodState {
             record.setOldComment(context.getCurrentComment());
             record.setStagedMethod(context.getCurrentMethod());
             record.clearStagedComment();
-            record.setTag(0);
             record.touch();
 
             if (MethodStatus.GENERATING.equals(context.getCurMethodStatus())) {
@@ -64,7 +77,6 @@ public final class NewMethodWithCommentState implements MethodState {
             record.setStagedMethod(context.getCurrentMethod());
             record.clearStagedComment();
             record.setStatus(MethodStatus.NEW_METHOD_WITH_COMMENT);
-            record.setTag(0);
             record.touch();
             return MethodStateResult.changed(record, MethodStatus.NEW_METHOD_WITH_COMMENT);
         }

@@ -12,6 +12,7 @@ import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.util.ui.JBUI;
 import com.nju.comment.dto.MethodRecord;
+import com.nju.comment.dto.MethodStatus;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import lombok.Getter;
@@ -154,18 +155,31 @@ public class MethodHistoryCard {
                 method.addBefore(newComment, method.getFirstChild());
             }
 
-            record.revertStagedOldMethod();
-            record.revertStagedOldComment();
-            record.setTag(0);
+            if (MethodStatus.TO_BE_GENERATE.equals(record.getStatus())) {
+                record.copyStagedToOldMethod();
+                record.copyStagedToOldComment();
+                record.clearStagedComment();
+                record.setStatus(MethodStatus.NEW_METHOD_WITH_COMMENT);
+            } else if (MethodStatus.TO_BE_UPDATE.equals(record.getStatus())) {
+                record.copyStagedToOldMethod();
+                record.copyStagedToOldComment();
+                record.clearStagedComment();
+                record.setStatus(MethodStatus.UNCHANGED);
+            }
             methodHistoryManager.save(record);
         });
     }
 
     private void onIgnore() {
-        record.revertStagedOldMethod();
-        record.clearStagedMethod();
-        record.clearStagedComment();
-        record.setTag(0);
+        if (MethodStatus.TO_BE_GENERATE.equals(record.getStatus())) {
+            record.copyStagedToOldMethod();
+            record.clearStagedComment();
+            record.setStatus(MethodStatus.NEW_METHOD_WITHOUT_COMMENT);
+        } else if (MethodStatus.TO_BE_UPDATE.equals(record.getStatus())) {
+            record.copyStagedToOldMethod();
+            record.clearStagedComment();
+            record.setStatus(MethodStatus.UNCHANGED);
+        }
         methodHistoryManager.save(record);
     }
 }

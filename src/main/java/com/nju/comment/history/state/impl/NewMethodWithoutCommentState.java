@@ -7,21 +7,25 @@ import com.nju.comment.history.state.MethodStateContext;
 import com.nju.comment.history.state.MethodStateResult;
 
 /**
- * 处理无注释的全新方法，并触发异步注释生成。
+ * 处理无注释的方法
  */
 public final class NewMethodWithoutCommentState implements MethodState {
 
+    /**
+     * 匹配无注释的新方法场景:<br>
+     * 1. 之前没有记录且当前无注释<br>
+     * 2. GENERATING 和 TO_BE_GENERATE 状态下仅方法被修改<br>
+     * 3. 其他状态下当前注释为空
+     *
+     * @param context 方法状态上下文
+     * @return 是否匹配该状态
+     */
     @Override
     public boolean matches(MethodStateContext context) {
         return (!context.hasCurrentComment()
                     && (!context.hasRecord()
                         || (!MethodStatus.GENERATING.equals(context.getCurMethodStatus())
-                            && !MethodStatus.TO_BE_GENERATE.equals(context.getCurMethodStatus())
-                            && !MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(context.getCurMethodStatus()))))
-                || (context.hasRecord()
-                    && MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(context.getCurMethodStatus())
-                    && context.commentEqualsOld()
-                    && context.getRecord().getTag() == 2)
+                            && !MethodStatus.TO_BE_GENERATE.equals(context.getCurMethodStatus()))))
                 || (context.hasRecord()
                     && MethodStatus.GENERATING.equals(context.getCurMethodStatus())
                     && context.commentEqualsOld()
@@ -33,8 +37,13 @@ public final class NewMethodWithoutCommentState implements MethodState {
     }
 
     /**
-     * 为新方法创建历史记录，设置 tag=2 表示待处理新建。
-     * 不主动触发生成，等待用户手动操作。
+     * 处理到达此状态的方法:<br>
+     * 1. 全新无注释方法，创建记录<br>
+     * 2. 如果已有记录，更新方法体，清空旧注释和暂存注释<br>
+     * 3. 原 GENERATING 和 METHOD_CHANGED 状态需取消在途请求
+     *
+     * @param context 方法状态上下文
+     * @return 方法状态处理结果
      */
     @Override
     public MethodStateResult handle(MethodStateContext context) {
@@ -45,12 +54,10 @@ public final class NewMethodWithoutCommentState implements MethodState {
             record.setOldComment("");
             record.setStagedMethod(context.getCurrentMethod());
             record.clearStagedComment();
-            record.setTag(2);
 
             if (MethodStatus.GENERATING.equals(context.getCurMethodStatus())
-                    || MethodStatus.TO_BE_GENERATE.equals(context.getCurMethodStatus())
                     || MethodStatus.METHOD_CHANGED.equals(context.getCurMethodStatus())) {
-                // 从 GENERATING 或 TO_BE_GENERATE 或 METHOD_CHANGED 转为 NEW_METHOD_WITHOUT_COMMENT，说明在生成过程中用户修改了方法体，取消前述请求
+                // 从 GENERATING 或 METHOD_CHANGED 转为 NEW_METHOD_WITHOUT_COMMENT，说明在生成过程中用户修改了方法体，取消前述请求
                 record.setStatus(MethodStatus.NEW_METHOD_WITHOUT_COMMENT);
                 return MethodStateResult.changedWithCancel(record, MethodStatus.NEW_METHOD_WITHOUT_COMMENT);
             } else if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(context.getCurMethodStatus())) {
@@ -74,7 +81,6 @@ public final class NewMethodWithoutCommentState implements MethodState {
             record.setStagedMethod(context.getCurrentMethod());
             record.clearStagedComment();
             record.setStatus(MethodStatus.NEW_METHOD_WITHOUT_COMMENT);
-            record.setTag(2);
             record.touch();
             return MethodStateResult.changed(record, MethodStatus.NEW_METHOD_WITHOUT_COMMENT);
         }

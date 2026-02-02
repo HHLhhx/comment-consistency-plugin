@@ -9,6 +9,7 @@ import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.service.PluginProjectService;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
 import java.awt.*;
@@ -18,6 +19,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 public class ModelSelectorPanel {
     @Getter
     private final JPanel root;
@@ -109,7 +111,8 @@ public class ModelSelectorPanel {
     private void reLoadModels() {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             List<String> models;
-            if (CommentGeneratorClient.getModelsList().isEmpty()) {
+            if (CommentGeneratorClient.getModelsList() == null
+                    || CommentGeneratorClient.getModelsList().isEmpty()) {
                 models = CommentGeneratorClient.getAvailableModels();
             } else {
                 models = CommentGeneratorClient.getModelsList();
@@ -130,6 +133,10 @@ public class ModelSelectorPanel {
 
     private void loadModels() {
         List<String> models = CommentGeneratorClient.getModelsList();
+        if (models == null) {
+            log.warn("Models list is null");
+            return;
+        }
         ApplicationManager.getApplication().invokeLater(() -> {
             comboBoxModel.removeAllElements();
             models.forEach(comboBoxModel::addElement);

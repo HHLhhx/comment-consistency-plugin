@@ -28,8 +28,7 @@ public final class MethodStateMachine {
     }
 
     /**
-     * 评估给定上下文对应的状态转移。
-     * 按优先级遍历所有状态处理器，返回第一个匹配的结果。
+     * 评估给定上下文对应的状态转移，返回第一个匹配的结果。
      */
     public MethodStateResult evaluate(MethodStateContext context) {
         for (MethodState state : states) {

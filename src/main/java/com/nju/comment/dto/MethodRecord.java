@@ -17,7 +17,6 @@ public class MethodRecord {
     String oldMethod;
     String oldComment;
     Instant updatedAt;
-    int tag;
 
     String filePath;
     String qualifiedNameContainClass;
@@ -32,7 +31,6 @@ public class MethodRecord {
         this.oldMethod = oldMethod;
         this.oldComment = oldComment;
         this.updatedAt = Instant.now();
-        this.tag = 0;
         this.filePath = null;
         this.stagedComment = null;
 
@@ -47,10 +45,9 @@ public class MethodRecord {
         this.updatedAt = Instant.now();
     }
 
-    public void revertStagedOldComment() {
+    public void copyStagedToOldComment() {
         if (this.stagedComment != null) {
             this.oldComment = this.stagedComment;
-            this.stagedComment = null;
             touch();
         }
     }
@@ -60,10 +57,9 @@ public class MethodRecord {
         touch();
     }
 
-    public void revertStagedOldMethod() {
+    public void copyStagedToOldMethod() {
         if (this.stagedMethod != null) {
             this.oldMethod = this.stagedMethod;
-            this.stagedMethod = null;
             touch();
         }
     }
@@ -85,7 +81,6 @@ public class MethodRecord {
                 "signature: " + signature + '\n' +
                 "filePath: " + filePath + '\n' +
                 "qualifiedNameContainClass: " + qualifiedNameContainClass + '\n' +
-                "updatedAt: " + updatedAt + "\n" +
-                "tag: " + tag + "\n";
+                "updatedAt: " + updatedAt + "\n";
     }
 }
