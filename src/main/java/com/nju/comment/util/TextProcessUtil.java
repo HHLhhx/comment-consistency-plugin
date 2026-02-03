@@ -12,7 +12,6 @@ public final class TextProcessUtil {
         comment = safeTrimNullable(comment);
 
         if (comment.isEmpty()) {
-            log.warn("注释文本为空");
             return comment;
         }
 

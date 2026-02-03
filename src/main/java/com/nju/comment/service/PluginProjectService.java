@@ -19,13 +19,14 @@ import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.util.TextProcessUtil;
 import com.nju.comment.util.MethodRecordUtil;
 import com.nju.comment.dto.MethodRecord;
+import com.nju.comment.util.MethodValidationUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service(Service.Level.PROJECT)
@@ -150,7 +151,7 @@ public final class PluginProjectService implements Disposable {
      */
     private void doRefreshMethodHistory(PsiMethod method) {
         ReadAction.run(() -> {
-            if (!isValid(method)) return;
+            if (!MethodValidationUtil.isValid(method)) return;
 
             String methodKey = MethodRecordUtil.buildMethodKey(method);
             try {
@@ -241,84 +242,6 @@ public final class PluginProjectService implements Disposable {
         }
 
         return record.getStatus();
-    }
-
-    /**
-     * 方法有效性校验
-     *
-     * @param method 目标方法
-     * @return 是否有效
-     */
-    private static boolean isValid(PsiMethod method) {
-        String key = MethodRecordUtil.buildMethodKey(method);
-
-        if (method == null || !method.isValid()) {
-            log.warn("方法无效，无法刷新方法历史记录: {}", method);
-            return false;
-        }
-
-        if (method.getBody() == null) {
-            log.warn("方法无方法体，跳过刷新：{}", key);
-            return false;
-        }
-
-        if (!PsiTreeUtil.findChildrenOfType(method, PsiErrorElement.class).isEmpty()) {
-            log.warn("方法存在语法错误，跳过刷新：{}", key);
-            return false;
-        }
-
-        Collection<PsiMethodCallExpression> calls = PsiTreeUtil.findChildrenOfType(method, PsiMethodCallExpression.class);
-        for (PsiMethodCallExpression call : calls) {
-            if (call == null) continue;
-            if (call.resolveMethod() == null) {
-                log.warn("方法存在未解析的方法调用，跳过刷新：{}", key);
-                return false;
-            }
-        }
-
-        Collection<PsiJavaCodeReferenceElement> typeRefs = PsiTreeUtil.findChildrenOfType(method, PsiJavaCodeReferenceElement.class);
-        for (PsiJavaCodeReferenceElement typeRef : typeRefs) {
-            if (typeRef == null) continue;
-            if (typeRef.resolve() == null) {
-                log.warn("方法存在未解析的类型引用，跳过刷新：{}", key);
-                return false;
-            }
-        }
-
-        Collection<PsiReferenceExpression> refs = PsiTreeUtil.findChildrenOfType(method, PsiReferenceExpression.class);
-        for (PsiReferenceExpression ref : refs) {
-            if (ref == null) continue;
-            PsiElement resolved = ref.resolve();
-            if (resolved == null) {
-                log.warn("方法包含未解析的引用，跳过刷新：{} -> {}", MethodRecordUtil.buildMethodKey(method), ref.getText());
-                return false;
-            }
-        }
-
-        PsiType returnType = method.getReturnType();
-        if (returnType != null && !returnType.equalsToText("void")) {
-            Collection<PsiReturnStatement> returns = PsiTreeUtil.findChildrenOfType(method, PsiReturnStatement.class);
-            if (returns.isEmpty()) {
-                Collection<PsiThrowStatement> throwsStmts = PsiTreeUtil.findChildrenOfType(method, PsiThrowStatement.class);
-                if (throwsStmts.isEmpty()) {
-                    log.warn("非void方法缺少return语句，且无throw语句，跳过刷新：{}", key);
-                    return false;
-                }
-            } else {
-                for (PsiReturnStatement rs : returns) {
-                    if (rs == null) continue;
-                    PsiExpression rv = rs.getReturnValue();
-                    if (rv == null) {
-                        log.warn("非void方法存在空return语句，跳过刷新：{}", key);
-                        return false;
-                    }
-                }
-            }
-        }
-
-        //TODO: 更多校验规则
-
-        return true;
     }
 
     /**
