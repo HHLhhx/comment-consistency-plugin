@@ -210,18 +210,6 @@ public final class MethodValidationUtil {
 
         boolean isPublic = method.hasModifierProperty(PsiModifier.PUBLIC);
 
-        System.out.println("isPublic: " + isPublic
-                + ", isAbstract: " + isAbstract
-                + ", isFinal: " + isFinal
-                + ", isPrivate: " + isPrivate
-                + ", isStatic: " + isStatic
-                + ", isNative: " + isNative
-                + ", isSynchronized: " + isSynchronized
-                + ", isStrictfp: " + isStrictfp
-                + ", isDefault: " + isDefault
-                + ", methodKey: " + methodKey
-                + ", hasBody: " + (method.getBody() != null));
-
         // 抽象方法与多种修饰符互斥
         if (isAbstract && (isFinal || isPrivate || isStatic || isNative || isSynchronized || isStrictfp || isDefault)) {
             log.warn("抽象方法存在互斥修饰符，跳过：{}", methodKey);
@@ -250,7 +238,6 @@ public final class MethodValidationUtil {
 
         // 接口方法规则
         if (containingClass.isInterface() && !containingClass.isAnnotationType()) {
-            System.out.println(methodKey);
             // 接口方法不允许 protected/final
             if (method.hasModifierProperty(PsiModifier.PROTECTED) || isFinal) {
                 log.warn("接口方法包含非法修饰符，跳过：{}", methodKey);
