@@ -10,7 +10,7 @@ import com.nju.comment.history.state.MethodStateResult;
 /**
  * 正在生成注释状态
  */
-public class GeneratingState implements MethodState {
+public final class GeneratingState implements MethodState {
 
     /**
      * 匹配正在生成注释场景：<br>

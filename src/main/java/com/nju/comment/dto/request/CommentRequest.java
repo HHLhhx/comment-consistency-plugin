@@ -19,5 +19,11 @@ public class CommentRequest {
 
     private String modelName;
 
-    private String clientRequestId;
+    private String requestId;
+
+    private Long timeoutMs;
+
+    private boolean rag;
+
+    private String ragExample;
 }

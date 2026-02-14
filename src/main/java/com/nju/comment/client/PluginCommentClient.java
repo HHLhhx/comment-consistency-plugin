@@ -49,7 +49,8 @@ public class PluginCommentClient implements CommentClient {
         this.requestTimeout = builder.requestTimeout;
     }
 
-    private <T> CompletableFuture<T> sendJson(String path, String method, String jsonBody, FunctionWithIOException<JsonNode, T> mapperFn) {
+    private <T> CompletableFuture<T> sendJson(String path, String method, String jsonBody,
+                                              FunctionWithIOException<JsonNode, T> mapperFn) {
         boolean acquired;
         try {
             acquired = concurrentLimiter.tryAcquire(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
@@ -105,8 +106,20 @@ public class PluginCommentClient implements CommentClient {
             return sendJson("/comments/generate", "POST", json, root -> {
                 boolean success = root.path("success").asBoolean(false);
                 if (!success) {
-                    log.warn("注释生成请求失败");
+                    int code = root.path("code").asInt(0);
                     String msg = root.path("message").asText("Unknown error");
+
+                    if (code == 2002) {
+                        log.warn("注释生成请求超时, requestId={}", request.getRequestId());
+                        //todo: 对超时请求设计重试逻辑
+                        throw new CompletionException(new RuntimeException(msg));
+                    } else if (code == 5001) {
+                        log.warn("注释生成服务异常, requestId={}", request.getRequestId());
+                        //todo: 对服务异常设计降级逻辑
+                        throw new CompletionException(new RuntimeException(msg));
+                    }
+
+                    log.warn("注释生成请求失败");
                     throw new CompletionException(new RuntimeException(msg));
                 }
                 log.info("注释生成请求成功");
