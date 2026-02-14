@@ -28,4 +28,7 @@ public final class Constant {
     public static final int CLIENT_REQUEST_TIMEOUT_S = 60;
     public static final int CLIENT_THREAD_POOL_SIZE = 10;
     public static final int CLIENT_MAX_CONNECTION_REQUESTS = 20;
+
+    // LLM settings
+    public static final int LLM_RESPONSE_TIMEOUT_S = 1;
 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.intellij.openapi.ui.Messages;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.response.CommentResponse;
@@ -165,9 +166,19 @@ public class PluginCommentClient implements CommentClient {
         try {
             return sendJson("/comments/models", "GET", null, root -> {
                 boolean success = root.path("success").asBoolean(false);
+
                 if (!success) {
-                    log.warn("获取可用模型请求失败");
+                    int code = root.path("code").asInt(0);
                     String msg = root.path("message").asText("Unknown error");
+
+                    if (code == 2006) {
+                        log.warn("获取可用模型请求超时");
+                        Messages.showWarningDialog("Timeout while fetching available models. Please click `refresh` button later.", "Timeout");
+                        //todo: 返回值完善
+                        return null;
+                    }
+
+                    log.warn("获取可用模型请求失败");
                     throw new CompletionException(new RuntimeException(msg));
                 }
                 log.info("获取可用模型请求成功");

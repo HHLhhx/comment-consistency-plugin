@@ -24,6 +24,4 @@ public class CommentRequest {
     private Long timeoutMs;
 
     private boolean rag;
-
-    private String ragExample;
 }

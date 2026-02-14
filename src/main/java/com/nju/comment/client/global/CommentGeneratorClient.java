@@ -26,7 +26,9 @@ public class CommentGeneratorClient {
 
     private static volatile CommentClient client;
     private static final Object LOCK = new Object();
-    private static final Duration TIMEOUT = Duration.ofSeconds(Constant.CLIENT_REQUEST_TIMEOUT_S);
+    private static final Duration CLIENT_TIMEOUT = Duration.ofSeconds(Constant.CLIENT_REQUEST_TIMEOUT_S);
+
+    private static final Duration LLM_TIMEOUT = Duration.ofSeconds(Constant.LLM_RESPONSE_TIMEOUT_S);
 
     // 方法维度的在途请求记录，用内容指纹区分「重复触发」与「修改后再触发」
     private static final Map<String, InFlightRecord> IN_FLIGHT_BY_METHOD = new ConcurrentHashMap<>();
@@ -60,7 +62,7 @@ public class CommentGeneratorClient {
             } else {
                 clientBuilder.baseUrl(Constant.CLIENT_DEFAULT_BASE_URL);
             }
-            clientBuilder.requestTimeout(TIMEOUT)
+            clientBuilder.requestTimeout(CLIENT_TIMEOUT)
                     .threadPoolSize(Constant.CLIENT_THREAD_POOL_SIZE)
                     .maxConcurrentRequests(Constant.CLIENT_MAX_CONNECTION_REQUESTS);
             client = clientBuilder.build();
@@ -107,7 +109,9 @@ public class CommentGeneratorClient {
                         .oldComment(data.getOldComment())
                         .newMethod(data.getNewMethod())
                         .modelName(options.getModelName())
-                        .clientRequestId(requestId)
+                        .requestId(requestId)
+                        .timeoutMs(LLM_TIMEOUT.toMillis())
+                        .rag(options.isRag())
                         .build();
 
                 CompletableFuture<CommentResponse> future = client.generateComment(req);
@@ -191,7 +195,7 @@ public class CommentGeneratorClient {
         try {
             log.info("获取可用模型列表");
             CompletableFuture<List<String>> future = client.getAvailableModels();
-            List<String> models = future.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            List<String> models = future.get(LLM_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
 
             if (models == null || models.isEmpty()) {
                 log.warn("未获取到可用模型列表");

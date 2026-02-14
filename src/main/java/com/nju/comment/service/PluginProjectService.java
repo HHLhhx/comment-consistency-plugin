@@ -155,7 +155,11 @@ public final class PluginProjectService implements Disposable {
 
             String methodKey = MethodRecordUtil.buildMethodKey(method);
             try {
-                GenerateOptions options = new GenerateOptions(CommentGeneratorClient.getSelectedModel());
+                GenerateOptions options = GenerateOptions.builder()
+                        .modelName(CommentGeneratorClient.getSelectedModel())
+                        .rag(false)
+                        .build();
+
                 methodHistoryManager.updateMethodHistoryAsync(method, (context, status) -> {
                     // 使用异步回调方式生成注释，不阻塞UI线程
                     CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {
@@ -190,6 +194,7 @@ public final class PluginProjectService implements Disposable {
 
     /**
      * 生成方法注释
+     *
      * @param method 目标方法
      */
     public void generateComment(PsiMethod method) {
@@ -219,6 +224,7 @@ public final class PluginProjectService implements Disposable {
 
     /**
      * 获取方法状态
+     *
      * @param method 目标方法
      * @return 方法状态
      */
