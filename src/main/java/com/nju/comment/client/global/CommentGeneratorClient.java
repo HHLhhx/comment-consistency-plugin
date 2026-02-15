@@ -9,6 +9,8 @@ import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.response.CommentResponse;
 import com.nju.comment.client.CommentClient;
 import com.nju.comment.client.PluginCommentClient;
+import com.nju.comment.exception.BackendException;
+import com.nju.comment.exception.ErrorHandler;
 import com.nju.comment.util.TextProcessUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -132,8 +134,14 @@ public class CommentGeneratorClient {
                                     : ex;
                             if (t instanceof CancellationException) {
                                 log.info("注释生成被取消, requestId={}, methodKey={}", requestId, methodKey);
+                            } else if (t instanceof BackendException be) {
+                                // 委托 ErrorHandler 统一处理，可重试的错误码传入重试动作
+                                Runnable retryAction = be.getErrorCode().isRetryable()
+                                        ? () -> generateCommentAsync(methodKey, data, options, callback)
+                                        : null;
+                                ErrorHandler.handle(be, retryAction);
                             } else {
-                                log.error("注释生成服务异常", ex);
+                                log.error("注释生成异常, requestId={}", requestId, t);
                             }
                             callback.accept(null);
                             return;
@@ -195,7 +203,7 @@ public class CommentGeneratorClient {
         try {
             log.info("获取可用模型列表");
             CompletableFuture<List<String>> future = client.getAvailableModels();
-            List<String> models = future.get(LLM_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            List<String> models = future.get();
 
             if (models == null || models.isEmpty()) {
                 log.warn("未获取到可用模型列表");
@@ -205,6 +213,14 @@ public class CommentGeneratorClient {
             log.info("可用模型列表: {}", models);
             modelsList = models;
             return models;
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof BackendException be) {
+                ErrorHandler.handle(be);
+            } else {
+                log.error("获取可用模型列表失败", e);
+            }
+            return List.of();
         } catch (Exception e) {
             log.error("获取可用模型列表失败", e);
             return List.of();

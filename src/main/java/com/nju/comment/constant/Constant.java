@@ -30,5 +30,5 @@ public final class Constant {
     public static final int CLIENT_MAX_CONNECTION_REQUESTS = 20;
 
     // LLM settings
-    public static final int LLM_RESPONSE_TIMEOUT_S = 1;
+    public static final int LLM_RESPONSE_TIMEOUT_S = 30;
 }

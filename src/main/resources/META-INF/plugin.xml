@@ -31,6 +31,9 @@
                     anchor="right"
                     icon="/icons/comment.png"
                     secondary="true"/>
+        <notificationGroup id="Comment Consistency"
+                           displayType="BALLOON"
+                           isLogByDefault="true"/>
     </extensions>
 
     <actions>

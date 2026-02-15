@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.intellij.openapi.ui.Messages;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.request.CommentRequest;
+import com.nju.comment.dto.response.ApiResponse;
 import com.nju.comment.dto.response.CommentResponse;
+import com.nju.comment.exception.BackendException;
+import com.nju.comment.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -90,6 +92,12 @@ public class PluginCommentClient implements CommentClient {
                     try {
                         JsonNode root = objectMapper.readTree(body);
                         return mapperFn.apply(root);
+                    } catch (CompletionException ce) {
+                        // 已包装的异常（如 BackendException），直接传播
+                        throw ce;
+                    } catch (BackendException be) {
+                        // 业务异常，包装后传播，不打 ERROR 日志
+                        throw new CompletionException(be);
                     } catch (Exception e) {
                         log.error("response处理失败", e);
                         throw new CompletionException(e);
@@ -105,27 +113,12 @@ public class PluginCommentClient implements CommentClient {
             log.info("注释生成请求: \n{}", json);
 
             return sendJson("/comments/generate", "POST", json, root -> {
-                boolean success = root.path("success").asBoolean(false);
-                if (!success) {
-                    int code = root.path("code").asInt(0);
-                    String msg = root.path("message").asText("Unknown error");
-
-                    if (code == 2002) {
-                        log.warn("注释生成请求超时, requestId={}", request.getRequestId());
-                        //todo: 对超时请求设计重试逻辑
-                        throw new CompletionException(new RuntimeException(msg));
-                    } else if (code == 5001) {
-                        log.warn("注释生成服务异常, requestId={}", request.getRequestId());
-                        //todo: 对服务异常设计降级逻辑
-                        throw new CompletionException(new RuntimeException(msg));
-                    }
-
-                    log.warn("注释生成请求失败");
-                    throw new CompletionException(new RuntimeException(msg));
+                ApiResponse apiResp = parseApiResponse(root);
+                if (!apiResp.isSuccess()) {
+                    throw newBackendException(apiResp, request.getRequestId());
                 }
                 log.info("注释生成请求成功");
-                JsonNode dataNode = root.path("data");
-                return objectMapper.treeToValue(dataNode, CommentResponse.class);
+                return objectMapper.treeToValue(apiResp.getData(), CommentResponse.class);
             });
         } catch (IOException e) {
             log.error("注释生成请求序列化失败", e);
@@ -147,11 +140,11 @@ public class PluginCommentClient implements CommentClient {
             log.info("发送取消请求: \n{}", json);
 
             sendJson("/comments/cancel", "POST", json, root -> {
-                boolean success = root.path("success").asBoolean(false);
-                if (!success) {
-                    log.warn("取消请求失败, requestId={}", requestId);
-                    String msg = root.path("message").asText("Unknown error");
-                    throw new CompletionException(new RuntimeException(msg));
+                ApiResponse apiResp = parseApiResponse(root);
+                if (!apiResp.isSuccess()) {
+                    log.warn("取消请求失败, requestId={}, code={}, msg={}",
+                            requestId, apiResp.getCode(), apiResp.getMessage());
+                    return null;
                 }
                 log.info("取消请求成功, requestId={}", requestId);
                 return null;
@@ -165,25 +158,13 @@ public class PluginCommentClient implements CommentClient {
     public CompletableFuture<List<String>> getAvailableModels() {
         try {
             return sendJson("/comments/models", "GET", null, root -> {
-                boolean success = root.path("success").asBoolean(false);
-
-                if (!success) {
-                    int code = root.path("code").asInt(0);
-                    String msg = root.path("message").asText("Unknown error");
-
-                    if (code == 2006) {
-                        log.warn("获取可用模型请求超时");
-                        Messages.showWarningDialog("Timeout while fetching available models. Please click `refresh` button later.", "Timeout");
-                        //todo: 返回值完善
-                        return null;
-                    }
-
-                    log.warn("获取可用模型请求失败");
-                    throw new CompletionException(new RuntimeException(msg));
+                ApiResponse apiResp = parseApiResponse(root);
+                if (!apiResp.isSuccess()) {
+                    throw newBackendException(apiResp, null);
                 }
                 log.info("获取可用模型请求成功");
-                JsonNode dataNode = root.path("data");
-                return objectMapper.convertValue(dataNode, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                return objectMapper.convertValue(apiResp.getData(),
+                        objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
             });
         } catch (Exception e) {
             log.error("获取可用模型请求失败", e);
@@ -248,6 +229,31 @@ public class PluginCommentClient implements CommentClient {
         public PluginCommentClient build() {
             return new PluginCommentClient(this);
         }
+    }
+
+    // ========================== 响应解析工具方法 ==========================
+
+    /**
+     * 将 JsonNode 解析为 ApiResponse，统一提取 success/code/message/data
+     */
+    private ApiResponse parseApiResponse(JsonNode root) {
+        ApiResponse resp = new ApiResponse();
+        resp.setSuccess(root.path("success").asBoolean(false));
+        resp.setCode(root.path("code").asInt(0));
+        resp.setMessage(root.path("message").asText("Unknown error"));
+        resp.setData(root.path("data"));
+        resp.setServerTime(root.path("serverTime").asLong(0));
+        return resp;
+    }
+
+    /**
+     * 根据 ApiResponse 构造 BackendException
+     */
+    private BackendException newBackendException(ApiResponse apiResp, String requestId) {
+        ErrorCode errorCode = ErrorCode.fromCode(apiResp.getCode());
+        log.warn("后端返回错误 [code={}, errorCode={}, requestId={}]: {}",
+                apiResp.getCode(), errorCode.name(), requestId, apiResp.getMessage());
+        return new BackendException(errorCode, apiResp.getMessage());
     }
 
     @FunctionalInterface
