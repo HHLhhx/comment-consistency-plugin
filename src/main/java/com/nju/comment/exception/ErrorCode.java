@@ -22,9 +22,17 @@ public enum ErrorCode {
     // ---- LLM 2xxx ----
     LLM_TIMEOUT(2002, "LLM调用超时", ErrorLevel.WARN, true),
     LLM_MODEL_FETCH_ERROR(2006, "获取LLM模型列表失败", ErrorLevel.ERROR, false),
+    LLM_API_KEY_INVALID(2009, "API Key 无效", ErrorLevel.ERROR, false),
 
     // ---- 注释业务 5xxx ----
     COMMENT_SERVICE_ERROR(5001, "注释服务异常", ErrorLevel.ERROR, false),
+
+    // ---- 认证 7xxx ----
+    AUTH_TOKEN_EXPIRED(7001, "登录已过期，请重新登录", ErrorLevel.WARN, false),
+    AUTH_TOKEN_INVALID(7002, "登录凭证无效，请重新登录", ErrorLevel.WARN, false),
+    AUTH_LOGIN_FAILED(7003, "用户名或密码错误", ErrorLevel.WARN, false),
+    AUTH_USERNAME_EXISTS(7005, "用户名已存在", ErrorLevel.WARN, false),
+    AUTH_API_KEY_NOT_SET(7009, "尚未配置 API Key，请在设置中配置", ErrorLevel.WARN, false),
 
     // ---- 兜底：未知错误码 ----
     UNKNOWN(-1, "未知错误", ErrorLevel.ERROR, false);

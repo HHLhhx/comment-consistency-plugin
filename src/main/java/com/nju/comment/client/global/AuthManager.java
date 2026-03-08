@@ -1,0 +1,65 @@
+package com.nju.comment.client.global;
+
+import com.intellij.ide.util.PropertiesComponent;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * 全局认证状态管理器。
+ * <p>
+ * 在内存中持有当前 JWT Token，并通过 IntelliJ {@link PropertiesComponent} 做跨会话持久化。
+ */
+@Slf4j
+public final class AuthManager {
+
+    private static final String TOKEN_KEY = "comment.consistency.auth.token";
+    private static final String USERNAME_KEY = "comment.consistency.auth.username";
+
+    @Getter
+    private static volatile String token;
+    @Getter
+    private static volatile String username;
+
+    private AuthManager() {
+    }
+
+    /**
+     * 从持久化存储恢复登录状态（插件启动时调用）
+     */
+    public static void init() {
+        PropertiesComponent props = PropertiesComponent.getInstance();
+        token = props.getValue(TOKEN_KEY);
+        username = props.getValue(USERNAME_KEY);
+        if (token != null) {
+            log.info("已恢复登录状态: username={}", username);
+        }
+    }
+
+    /**
+     * 保存登录凭证
+     */
+    public static void saveAuth(String newToken, String newUsername) {
+        token = newToken;
+        username = newUsername;
+        PropertiesComponent props = PropertiesComponent.getInstance();
+        props.setValue(TOKEN_KEY, newToken);
+        props.setValue(USERNAME_KEY, newUsername);
+        log.info("已保存登录状态: username={}", newUsername);
+    }
+
+    /**
+     * 清除登录凭证（登出或 token 失效时调用）
+     */
+    public static void clearAuth() {
+        token = null;
+        username = null;
+        PropertiesComponent props = PropertiesComponent.getInstance();
+        props.unsetValue(TOKEN_KEY);
+        props.unsetValue(USERNAME_KEY);
+        log.info("已清除登录状态");
+    }
+
+    public static boolean isLoggedIn() {
+        return token != null && !token.isBlank();
+    }
+}

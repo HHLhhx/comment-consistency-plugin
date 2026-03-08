@@ -1,5 +1,6 @@
 package com.nju.comment.dto;
 
+import com.nju.comment.dto.request.CommentReqTag;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,5 +12,5 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class GenerateOptions {
     String modelName;
-    boolean rag;
+    CommentReqTag tag;
 }

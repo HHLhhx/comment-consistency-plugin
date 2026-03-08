@@ -8,6 +8,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
+import com.nju.comment.client.global.AuthManager;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
@@ -75,6 +76,33 @@ public final class ErrorHandler {
                     NotificationType.WARNING);
 
             case PARAMETER_ERROR -> log.warn("参数错误（不通知用户）: {}", msg);
+
+            case AUTH_TOKEN_EXPIRED, AUTH_TOKEN_INVALID -> {
+                AuthManager.clearAuth();
+                notify("登录已失效",
+                        "登录凭证已过期或无效，请重新登录。",
+                        NotificationType.WARNING);
+            }
+
+            case AUTH_LOGIN_FAILED -> notify(
+                    "登录失败",
+                    "用户名或密码错误，请重试。",
+                    NotificationType.WARNING);
+
+            case AUTH_USERNAME_EXISTS -> notify(
+                    "注册失败",
+                    "用户名已存在，请换一个用户名。",
+                    NotificationType.WARNING);
+
+            case AUTH_API_KEY_NOT_SET -> notify(
+                    "API Key 未配置",
+                    "请先在后端配置 API Key 后再使用。",
+                    NotificationType.WARNING);
+
+            case LLM_API_KEY_INVALID -> notify(
+                    "API Key 无效",
+                    "当前配置的 API Key 无效，请更新。",
+                    NotificationType.ERROR);
 
             default -> log.error("未处理的后端错误 [code={}]: {}", code.getCode(), msg);
         }

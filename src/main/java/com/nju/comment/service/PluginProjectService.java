@@ -10,10 +10,12 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.nju.comment.client.global.AuthManager;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.GenerateOptions;
 import com.nju.comment.dto.MethodStatus;
+import com.nju.comment.dto.request.CommentReqTag;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.util.TextProcessUtil;
@@ -50,11 +52,18 @@ public final class PluginProjectService implements Disposable {
      */
     public void initialize() {
         log.info("项目启动初始化");
+        AuthManager.init();
         CommentGeneratorClient.init(DEFAULT_BASE_URL);
-        ApplicationManager.getApplication().executeOnPooledThread(() -> {
-            CommentGeneratorClient.getAvailableModels();
+
+        if (AuthManager.isLoggedIn()) {
+            ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                CommentGeneratorClient.getAvailableModels();
+                initializationFuture.complete(null);
+            });
+        } else {
+            // 未登录时直接完成初始化，等待用户在工具窗口中登录
             initializationFuture.complete(null);
-        });
+        }
     }
 
     /**
@@ -155,12 +164,21 @@ public final class PluginProjectService implements Disposable {
 
             String methodKey = MethodRecordUtil.buildMethodKey(method);
             try {
-                GenerateOptions options = GenerateOptions.builder()
-                        .modelName(CommentGeneratorClient.getSelectedModel())
-                        .rag(false)
-                        .build();
-
                 methodHistoryManager.updateMethodHistoryAsync(method, (context, status) -> {
+                    // 根据状态选择生成标签
+                    CommentReqTag tag;
+                    if (MethodStatus.TO_BE_GENERATE.equals(status)) {
+                        tag = CommentReqTag.GENERATE;
+                    } else {
+                        tag = CommentGeneratorClient.isRagEnabled()
+                                ? CommentReqTag.UPDATE_WITH_RAG
+                                : CommentReqTag.UPDATE_WITHOUT_RAG;
+                    }
+                    GenerateOptions options = GenerateOptions.builder()
+                            .modelName(CommentGeneratorClient.getSelectedModel())
+                            .tag(tag)
+                            .build();
+
                     // 使用异步回调方式生成注释，不阻塞UI线程
                     CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {
                         if (generatedComment == null) {

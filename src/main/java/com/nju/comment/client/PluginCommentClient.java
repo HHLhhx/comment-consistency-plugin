@@ -5,9 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.nju.comment.constant.Constant;
+import com.nju.comment.dto.request.ApiKeyRequest;
 import com.nju.comment.dto.request.CommentRequest;
+import com.nju.comment.dto.request.LoginRequest;
+import com.nju.comment.dto.request.RegisterRequest;
 import com.nju.comment.dto.response.ApiResponse;
+import com.nju.comment.dto.response.AuthResponse;
 import com.nju.comment.dto.response.CommentResponse;
+import com.nju.comment.client.global.AuthManager;
 import com.nju.comment.exception.BackendException;
 import com.nju.comment.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
@@ -52,22 +57,43 @@ public class PluginCommentClient implements CommentClient {
         this.requestTimeout = builder.requestTimeout;
     }
 
-    private <T> CompletableFuture<T> sendJson(String path, String method, String jsonBody,
-                                              FunctionWithIOException<JsonNode, T> mapperFn) {
+    // ========================== 请求引擎 ==========================
+
+    /** 发送无请求体的请求（GET / DELETE / 空 POST），默认携带认证头 */
+    private <T> CompletableFuture<T> send(String path, String method, ResponseMapper<T> mapper) {
+        return doSend(path, method, null, mapper, true);
+    }
+
+    /** 发送带请求体的请求（POST / PUT），自动序列化，默认携带认证头 */
+    private <T> CompletableFuture<T> sendBody(String path, String method, Object body,
+                                               ResponseMapper<T> mapper) {
+        return sendBody(path, method, body, mapper, true);
+    }
+
+    /** 发送带请求体的请求，可控是否携带认证头 */
+    private <T> CompletableFuture<T> sendBody(String path, String method, Object body,
+                                               ResponseMapper<T> mapper, boolean authenticated) {
+        try {
+            String json = objectMapper.writeValueAsString(body);
+            return doSend(path, method, json, mapper, authenticated);
+        } catch (IOException e) {
+            log.warn("请求序列化失败: path={}, method={}, body={}", path, method, body, e);
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    /** 统一请求骨架：信号量限流 → 构建 HTTP 请求 → 异步发送 → 响应映射 */
+    private <T> CompletableFuture<T> doSend(String path, String method, String jsonBody,
+                                             ResponseMapper<T> mapper, boolean authenticated) {
         boolean acquired;
         try {
             acquired = concurrentLimiter.tryAcquire(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            log.error("请求被中断: {}", path, e);
-            CompletableFuture<T> f = new CompletableFuture<>();
-            f.completeExceptionally(e);
-            return f;
+            return CompletableFuture.failedFuture(e);
         }
         if (!acquired) {
-            log.info("请求并发数达到上限，拒绝请求: {}", path);
-            CompletableFuture<T> f = new CompletableFuture<>();
-            f.completeExceptionally(new TimeoutException("Timeout acquiring semaphore for request"));
-            return f;
+            return CompletableFuture.failedFuture(
+                    new TimeoutException("请求并发数达到上限: " + path));
         }
 
         HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
@@ -75,104 +101,162 @@ public class PluginCommentClient implements CommentClient {
                 .timeout(requestTimeout)
                 .header("Content-Type", "application/json");
 
-        if ("POST".equalsIgnoreCase(method)) {
-            reqBuilder.POST(HttpRequest.BodyPublishers.ofString(jsonBody == null ? "" : jsonBody));
-        } else {
-            reqBuilder.GET();
+        if (authenticated) {
+            String token = AuthManager.getToken();
+            if (token != null && !token.isBlank()) {
+                reqBuilder.header("Authorization", "Bearer " + token);
+            }
         }
 
-        HttpRequest request = reqBuilder.build();
+        switch (method.toUpperCase()) {
+            case "POST"   -> reqBuilder.POST(bodyPublisher(jsonBody));
+            case "PUT"    -> reqBuilder.PUT(bodyPublisher(jsonBody));
+            case "DELETE" -> reqBuilder.DELETE();
+            default       -> reqBuilder.GET();
+        }
 
-        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+        return httpClient.sendAsync(reqBuilder.build(), HttpResponse.BodyHandlers.ofString())
                 .orTimeout(requestTimeout.toMillis(), TimeUnit.MILLISECONDS)
                 .thenApplyAsync(response -> {
-                    int statusCode = response.statusCode();
-                    String body = response.body();
-                    log.info("statusCode: {}, body: \n{}", statusCode, body);
+                    log.info("[{}] {} → {}", method, path, response.statusCode());
+                    log.debug("响应体: {}", response.body());
                     try {
-                        JsonNode root = objectMapper.readTree(body);
-                        return mapperFn.apply(root);
+                        return mapper.apply(objectMapper.readTree(response.body()));
                     } catch (CompletionException ce) {
-                        // 已包装的异常（如 BackendException），直接传播
                         throw ce;
                     } catch (BackendException be) {
-                        // 业务异常，包装后传播，不打 ERROR 日志
                         throw new CompletionException(be);
                     } catch (Exception e) {
-                        log.error("response处理失败", e);
                         throw new CompletionException(e);
                     }
                 }, executor)
                 .whenComplete((res, ex) -> concurrentLimiter.release());
     }
 
+    private static HttpRequest.BodyPublisher bodyPublisher(String json) {
+        return HttpRequest.BodyPublishers.ofString(json == null ? "" : json);
+    }
+
+    // ========================== 响应校验 ==========================
+
+    private ApiResponse checkResponse(JsonNode root) {
+        return checkResponse(root, null);
+    }
+
+    private ApiResponse checkResponse(JsonNode root, String requestId) {
+        ApiResponse resp = parseApiResponse(root);
+        if (!resp.isSuccess()) {
+            throw newBackendException(resp, requestId);
+        }
+        return resp;
+    }
+
+    private ApiResponse parseApiResponse(JsonNode root) {
+        ApiResponse resp = new ApiResponse();
+        resp.setSuccess(root.path("success").asBoolean(false));
+        resp.setCode(root.path("code").asInt(0));
+        resp.setMessage(root.path("message").asText("Unknown error"));
+        resp.setData(root.path("data"));
+        resp.setServerTime(root.path("serverTime").asLong(0));
+        return resp;
+    }
+
+    private BackendException newBackendException(ApiResponse apiResp, String requestId) {
+        ErrorCode errorCode = ErrorCode.fromCode(apiResp.getCode());
+        log.warn("后端返回错误 [code={}, errorCode={}, requestId={}]: {}",
+                apiResp.getCode(), errorCode.name(), requestId, apiResp.getMessage());
+        return new BackendException(errorCode, apiResp.getMessage());
+    }
+
+    // ========================== 注释业务 ==========================
+
     @Override
     public CompletableFuture<CommentResponse> generateComment(CommentRequest request) {
-        try {
-            String json = objectMapper.writeValueAsString(request);
-            log.info("注释生成请求: \n{}", json);
-
-            return sendJson("/comments/generate", "POST", json, root -> {
-                ApiResponse apiResp = parseApiResponse(root);
-                if (!apiResp.isSuccess()) {
-                    throw newBackendException(apiResp, request.getRequestId());
-                }
-                log.info("注释生成请求成功");
-                return objectMapper.treeToValue(apiResp.getData(), CommentResponse.class);
-            });
-        } catch (IOException e) {
-            log.error("注释生成请求序列化失败", e);
-            CompletableFuture<CommentResponse> f = new CompletableFuture<>();
-            f.completeExceptionally(e);
-            return f;
-        }
+        return sendBody("/comments/generate", "POST", request, root -> {
+            ApiResponse resp = checkResponse(root, request.getRequestId());
+            return objectMapper.treeToValue(resp.getData(), CommentResponse.class);
+        });
     }
 
     @Override
-    public void cancelRequest(String requestId) {
+    public CompletableFuture<Void> cancelRequest(String requestId) {
         if (requestId == null || requestId.isBlank()) {
             log.warn("取消请求失败，requestId 为空");
-            return;
+            return CompletableFuture.completedFuture(null);
         }
-
-        try {
-            String json = objectMapper.writeValueAsString(new CancelRequestPayload(requestId));
-            log.info("发送取消请求: \n{}", json);
-
-            sendJson("/comments/cancel", "POST", json, root -> {
-                ApiResponse apiResp = parseApiResponse(root);
-                if (!apiResp.isSuccess()) {
-                    log.warn("取消请求失败, requestId={}, code={}, msg={}",
-                            requestId, apiResp.getCode(), apiResp.getMessage());
-                    return null;
-                }
-                log.info("取消请求成功, requestId={}", requestId);
-                return null;
-            });
-        } catch (Exception e) {
-            log.error("取消请求异常, requestId={}", requestId, e);
-        }
+        return sendBody("/comments/cancel", "POST", new CancelPayload(requestId), root -> {
+            ApiResponse resp = parseApiResponse(root);
+            if (!resp.isSuccess()) {
+                log.warn("取消请求返回失败, requestId={}, code={}, msg={}",
+                        requestId, resp.getCode(), resp.getMessage());
+            }
+            return null;
+        });
     }
 
     @Override
     public CompletableFuture<List<String>> getAvailableModels() {
-        try {
-            return sendJson("/comments/models", "GET", null, root -> {
-                ApiResponse apiResp = parseApiResponse(root);
-                if (!apiResp.isSuccess()) {
-                    throw newBackendException(apiResp, null);
-                }
-                log.info("获取可用模型请求成功");
-                return objectMapper.convertValue(apiResp.getData(),
-                        objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
-            });
-        } catch (Exception e) {
-            log.error("获取可用模型请求失败", e);
-            CompletableFuture<List<String>> f = new CompletableFuture<>();
-            f.completeExceptionally(e);
-            return f;
-        }
+        return send("/comments/models", "GET", root -> {
+            ApiResponse resp = checkResponse(root);
+            return objectMapper.convertValue(resp.getData(),
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+        });
     }
+
+    // ========================== 认证 ==========================
+
+    @Override
+    public CompletableFuture<AuthResponse> login(LoginRequest request) {
+        return sendBody("/auth/login", "POST", request, root -> {
+            ApiResponse resp = checkResponse(root);
+            return objectMapper.treeToValue(resp.getData(), AuthResponse.class);
+        }, false);
+    }
+
+    @Override
+    public CompletableFuture<AuthResponse> register(RegisterRequest request) {
+        return sendBody("/auth/register", "POST", request, root -> {
+            ApiResponse resp = checkResponse(root);
+            return objectMapper.treeToValue(resp.getData(), AuthResponse.class);
+        }, false);
+    }
+
+    @Override
+    public CompletableFuture<Void> logout() {
+        return send("/auth/logout", "POST", root -> {
+            checkResponse(root);
+            return null;
+        });
+    }
+
+    // ========================== 用户设置 ==========================
+
+    @Override
+    public CompletableFuture<Void> saveApiKey(ApiKeyRequest request) {
+        return sendBody("/settings/api-key", "PUT", request, root -> {
+            checkResponse(root);
+            return null;
+        });
+    }
+
+    @Override
+    public CompletableFuture<String> checkApiKey() {
+        return send("/settings/api-key", "GET", root -> {
+            ApiResponse resp = checkResponse(root);
+            JsonNode data = resp.getData();
+            return (data == null || data.isNull()) ? null : data.asText();
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> deleteApiKey() {
+        return send("/settings/api-key", "DELETE", root -> {
+            checkResponse(root);
+            return null;
+        });
+    }
+
+    // ========================== 基础设施 ==========================
 
     @Override
     public void shutdown() {
@@ -231,39 +315,10 @@ public class PluginCommentClient implements CommentClient {
         }
     }
 
-    // ========================== 响应解析工具方法 ==========================
-
-    /**
-     * 将 JsonNode 解析为 ApiResponse，统一提取 success/code/message/data
-     */
-    private ApiResponse parseApiResponse(JsonNode root) {
-        ApiResponse resp = new ApiResponse();
-        resp.setSuccess(root.path("success").asBoolean(false));
-        resp.setCode(root.path("code").asInt(0));
-        resp.setMessage(root.path("message").asText("Unknown error"));
-        resp.setData(root.path("data"));
-        resp.setServerTime(root.path("serverTime").asLong(0));
-        return resp;
-    }
-
-    /**
-     * 根据 ApiResponse 构造 BackendException
-     */
-    private BackendException newBackendException(ApiResponse apiResp, String requestId) {
-        ErrorCode errorCode = ErrorCode.fromCode(apiResp.getCode());
-        log.warn("后端返回错误 [code={}, errorCode={}, requestId={}]: {}",
-                apiResp.getCode(), errorCode.name(), requestId, apiResp.getMessage());
-        return new BackendException(errorCode, apiResp.getMessage());
-    }
-
     @FunctionalInterface
-    private interface FunctionWithIOException<T, R> {
-        R apply(T t) throws Exception;
+    private interface ResponseMapper<R> {
+        R apply(JsonNode root) throws Exception;
     }
 
-    private record CancelRequestPayload(@SuppressWarnings("unused") String requestId) {
-        private CancelRequestPayload(String requestId) {
-            this.requestId = requestId;
-        }
-    }
+    private record CancelPayload(String requestId) {}
 }

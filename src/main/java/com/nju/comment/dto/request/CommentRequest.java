@@ -23,5 +23,5 @@ public class CommentRequest {
 
     private Long timeoutMs;
 
-    private boolean rag;
+    private CommentReqTag tag;
 }
