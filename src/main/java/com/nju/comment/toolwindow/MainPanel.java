@@ -38,7 +38,8 @@ public class MainPanel extends JPanel implements Disposable {
     private final JPanel cardsListPanel;
 
     private final ScheduledExecutorService uiScheduler = Executors.newSingleThreadScheduledExecutor();
-    private Set<String> lastSeenSignatures = ConcurrentHashMap.newKeySet();
+    private Set<String> lastSeenSignatures = null;
+    private boolean suppressModelAction = false;
 
     private final MethodHistoryManager historyManager =
             new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
@@ -159,6 +160,7 @@ public class MainPanel extends JPanel implements Disposable {
 
         // 模型选择事件
         modelCombo.addActionListener(e -> {
+            if (suppressModelAction) return;
             String sel = (String) modelCombo.getSelectedItem();
             if (sel != null) CommentGeneratorClient.setSelectedModel(sel);
         });
@@ -203,7 +205,6 @@ public class MainPanel extends JPanel implements Disposable {
             emptyLabel.setForeground(JBColor.GRAY);
             emptyPanel.add(emptyLabel);
             cardsListPanel.add(emptyPanel);
-            System.out.println("empty");
         } else {
             for (MethodRecord record : staged) {
                 cardsListPanel.add(Box.createVerticalStrut(6));
@@ -225,14 +226,19 @@ public class MainPanel extends JPanel implements Disposable {
     private void loadModels() {
         List<String> models = CommentGeneratorClient.getModelsList();
         if (models == null || models.isEmpty()) return;
-        comboBoxModel.removeAllElements();
-        models.forEach(comboBoxModel::addElement);
-        String sel = CommentGeneratorClient.getSelectedModel();
-        if (sel != null && models.contains(sel)) {
-            comboBoxModel.setSelectedItem(sel);
-        } else if (!models.isEmpty()) {
-            comboBoxModel.setSelectedItem(models.getFirst());
-            CommentGeneratorClient.setSelectedModel(models.getFirst());
+        suppressModelAction = true;
+        try {
+            comboBoxModel.removeAllElements();
+            models.forEach(comboBoxModel::addElement);
+            String sel = CommentGeneratorClient.getSelectedModel();
+            if (sel != null && models.contains(sel)) {
+                comboBoxModel.setSelectedItem(sel);
+            } else if (!models.isEmpty()) {
+                comboBoxModel.setSelectedItem(models.getFirst());
+                CommentGeneratorClient.setSelectedModel(models.getFirst());
+            }
+        } finally {
+            suppressModelAction = false;
         }
     }
 
@@ -240,14 +246,19 @@ public class MainPanel extends JPanel implements Disposable {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             List<String> models = CommentGeneratorClient.getAvailableModels();
             ApplicationManager.getApplication().invokeLater(() -> {
-                comboBoxModel.removeAllElements();
-                models.forEach(comboBoxModel::addElement);
-                String sel = CommentGeneratorClient.getSelectedModel();
-                if (sel != null && !sel.isEmpty() && models.contains(sel)) {
-                    comboBoxModel.setSelectedItem(sel);
-                } else if (!models.isEmpty()) {
-                    comboBoxModel.setSelectedItem(models.getFirst());
-                    CommentGeneratorClient.setSelectedModel(models.getFirst());
+                suppressModelAction = true;
+                try {
+                    comboBoxModel.removeAllElements();
+                    models.forEach(comboBoxModel::addElement);
+                    String sel = CommentGeneratorClient.getSelectedModel();
+                    if (sel != null && !sel.isEmpty() && models.contains(sel)) {
+                        comboBoxModel.setSelectedItem(sel);
+                    } else if (!models.isEmpty()) {
+                        comboBoxModel.setSelectedItem(models.getFirst());
+                        CommentGeneratorClient.setSelectedModel(models.getFirst());
+                    }
+                } finally {
+                    suppressModelAction = false;
                 }
             });
         });

@@ -238,6 +238,7 @@ public class CommentGeneratorClient {
                 return List.of();
             }
 
+            models.sort(String::compareTo);
             log.info("可用模型列表: {}", models);
             modelsList = models;
             return models;
