@@ -26,8 +26,8 @@
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="com.nju.comment.PluginStartupActivity"/>
-        <toolWindow id="Model Selector"
-                    factoryClass="com.nju.comment.toolwindow.ModelSelectorToolWindowFactory"
+        <toolWindow id="Comment Consistency"
+                    factoryClass="com.nju.comment.toolwindow.MainToolWindowFactory"
                     anchor="right"
                     icon="/icons/comment.png"
                     secondary="true"/>

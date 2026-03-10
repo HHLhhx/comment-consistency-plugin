@@ -296,9 +296,9 @@ public class CommentGeneratorClient {
     /**
      * 注册
      */
-    public static CompletableFuture<AuthResponse> register(String username, String password) {
+    public static CompletableFuture<AuthResponse> register(String username, String password, String phone) {
         initCheck();
-        return client.register(new RegisterRequest(username, password));
+        return client.register(new RegisterRequest(username, password, phone));
     }
 
     /**

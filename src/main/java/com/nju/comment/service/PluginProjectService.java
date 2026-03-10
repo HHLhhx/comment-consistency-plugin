@@ -28,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.*;
 
 @Slf4j
 @Service(Service.Level.PROJECT)
@@ -42,9 +42,62 @@ public final class PluginProjectService implements Disposable {
     @Getter
     private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
 
+    private ScheduledExecutorService autoScheduler;
+    private ScheduledFuture<?> autoUpdateTask;
+    private ScheduledFuture<?> autoCleanTask;
+
     public PluginProjectService(Project project) {
         this.project = project;
         this.methodHistoryManager = new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
+    }
+
+    // ==================== 自动化调度 ====================
+
+    public void setAutoUpdateEnabled(boolean enabled) {
+        if (enabled) {
+            ensureScheduler();
+            if (autoUpdateTask == null || autoUpdateTask.isCancelled()) {
+                autoUpdateTask = autoScheduler.scheduleWithFixedDelay(
+                        this::refreshAllMethodHistories,
+                        Constant.AUTO_UPDATE_INITIAL_DELAY_MS,
+                        Constant.AUTO_UPDATE_DELAY_MS, TimeUnit.MILLISECONDS);
+            }
+        } else if (autoUpdateTask != null) {
+            autoUpdateTask.cancel(false);
+            autoUpdateTask = null;
+        }
+    }
+
+    public boolean isAutoUpdateEnabled() {
+        return autoUpdateTask != null && !autoUpdateTask.isCancelled();
+    }
+
+    public void setAutoCleanEnabled(boolean enabled) {
+        if (enabled) {
+            ensureScheduler();
+            if (autoCleanTask == null || autoCleanTask.isCancelled()) {
+                autoCleanTask = autoScheduler.scheduleWithFixedDelay(
+                        () -> {
+                            List<PsiMethod> methods = collectAllMethods(project);
+                            methodHistoryManager.clearDeletedMethodHistories(methods);
+                        },
+                        Constant.AUTO_DELETE_INITIAL_DELAY_MS,
+                        Constant.AUTO_DELETE_DELAY_MS, TimeUnit.MILLISECONDS);
+            }
+        } else if (autoCleanTask != null) {
+            autoCleanTask.cancel(false);
+            autoCleanTask = null;
+        }
+    }
+
+    public boolean isAutoCleanEnabled() {
+        return autoCleanTask != null && !autoCleanTask.isCancelled();
+    }
+
+    private void ensureScheduler() {
+        if (autoScheduler == null || autoScheduler.isShutdown()) {
+            autoScheduler = Executors.newSingleThreadScheduledExecutor();
+        }
     }
 
     /**
@@ -274,6 +327,11 @@ public final class PluginProjectService implements Disposable {
     @Override
     public void dispose() {
         log.info("项目关闭，释放资源");
+        setAutoUpdateEnabled(false);
+        setAutoCleanEnabled(false);
+        if (autoScheduler != null) {
+            autoScheduler.shutdownNow();
+        }
         CommentGeneratorClient.shutdown();
     }
 }

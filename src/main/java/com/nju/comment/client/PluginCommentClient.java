@@ -119,7 +119,6 @@ public class PluginCommentClient implements CommentClient {
                 .orTimeout(requestTimeout.toMillis(), TimeUnit.MILLISECONDS)
                 .thenApplyAsync(response -> {
                     log.info("[{}] {} → {}", method, path, response.statusCode());
-                    log.debug("响应体: {}", response.body());
                     try {
                         return mapper.apply(objectMapper.readTree(response.body()));
                     } catch (CompletionException ce) {
