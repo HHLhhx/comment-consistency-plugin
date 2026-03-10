@@ -77,7 +77,7 @@ public final class ErrorHandler {
 
             case PARAMETER_ERROR -> log.warn("参数错误（不通知用户）: {}", msg);
 
-            case AUTH_TOKEN_EXPIRED, AUTH_TOKEN_INVALID -> {
+            case AUTH_TOKEN_EXPIRED, AUTH_TOKEN_INVALID, AUTH_TOKEN_BLACKLISTED -> {
                 AuthManager.clearAuth();
                 notify("登录已失效",
                         "登录凭证已过期或无效，请重新登录。",
@@ -94,7 +94,12 @@ public final class ErrorHandler {
                     "用户名已存在，请换一个用户名。",
                     NotificationType.WARNING);
 
-            case AUTH_API_KEY_NOT_SET -> notify(
+            case AUTH_PHONE_EXISTS -> notify(
+                    "注册失败",
+                    "手机号已被注册，请更换手机号。",
+                    NotificationType.WARNING);
+
+            case LLM_API_KEY_NOT_SET -> notify(
                     "API Key 未配置",
                     "请先在后端配置 API Key 后再使用。",
                     NotificationType.WARNING);
