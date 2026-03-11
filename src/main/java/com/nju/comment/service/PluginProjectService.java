@@ -1,5 +1,6 @@
 package com.nju.comment.service;
 
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
@@ -25,6 +26,7 @@ import com.nju.comment.pojo.MethodRecord;
 import com.nju.comment.util.MethodValidationUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -36,9 +38,12 @@ import java.util.concurrent.*;
 public final class PluginProjectService implements Disposable {
 
     private static final String DEFAULT_BASE_URL = Constant.CLIENT_DEFAULT_BASE_URL;
+    private static final long GUTTER_REFRESH_DEBOUNCE_MS = 500;
 
     private final Project project;
     private final MethodHistoryManager methodHistoryManager;
+    /** 去抖：每个文件对应一个延迟 restart 任务，新变更重置计时 */
+    private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingRefreshes = new ConcurrentHashMap<>();
 
     @Getter
     private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
@@ -97,6 +102,56 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
+    // ==================== Gutter 图标刷新 ====================
+
+    /**
+     * 监听 Java 文件 PSI 变化，通过去抖延迟触发 DaemonCodeAnalyzer.restart，
+     * 解决编辑注释时 gutter 图标不刷新的问题。
+     * <p>
+     * 去抖策略：同一文件连续变更只在最后一次变更后 {@value GUTTER_REFRESH_DEBOUNCE_MS}ms 才真正 restart，
+     * 避免每次击键都触发全量重新高亮。
+     */
+    private void registerGutterRefreshListener() {
+        PsiManager.getInstance(project).addPsiTreeChangeListener(new PsiTreeChangeAdapter() {
+            @Override
+            public void childrenChanged(@NotNull PsiTreeChangeEvent event) {
+                PsiFile file = event.getFile();
+                if (file == null) return;
+                VirtualFile vf = file.getVirtualFile();
+                if (vf == null || !"java".equalsIgnoreCase(vf.getExtension())) return;
+                scheduleGutterRefresh(file);
+            }
+        }, this);
+    }
+
+    /**
+     * 去抖调度：取消同文件的前序待执行 restart，重新延迟 {@value GUTTER_REFRESH_DEBOUNCE_MS}ms 后执行。
+     */
+    private void scheduleGutterRefresh(PsiFile file) {
+        String path = file.getVirtualFile().getPath();
+        ensureScheduler();
+
+        ScheduledFuture<?> prev = pendingRefreshes.get(path);
+        if (prev != null) prev.cancel(false);
+
+        ScheduledFuture<?> task = autoScheduler.schedule(() ->
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    pendingRefreshes.remove(path);
+                    if (file.isValid()) {
+                        DaemonCodeAnalyzer.getInstance(project).restart(file);
+                    }
+                }), GUTTER_REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+        pendingRefreshes.put(path, task);
+    }
+
+    /**
+     * 请求刷新指定文件的 gutter 图标（去抖），供后台线程状态变更后调用。
+     */
+    public void requestGutterIconRefresh(PsiFile file) {
+        if (file == null || !file.isValid()) return;
+        scheduleGutterRefresh(file);
+    }
+
     // ==================== 项目服务 ====================
 
     /**
@@ -106,6 +161,8 @@ public final class PluginProjectService implements Disposable {
         log.info("项目启动初始化");
         AuthManager.init();
         CommentGeneratorClient.init(DEFAULT_BASE_URL);
+        setAutoCleanEnabled(true);
+        registerGutterRefreshListener();
 
         if (AuthManager.isLoggedIn()) {
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
@@ -214,6 +271,7 @@ public final class PluginProjectService implements Disposable {
         ReadAction.run(() -> {
             if (!MethodValidationUtil.isValid(method)) return;
 
+            PsiFile psiFile = method.getContainingFile();
             String methodKey = MethodRecordUtil.buildMethodKey(method);
             try {
                 methodHistoryManager.updateMethodHistoryAsync(method, (context, status) -> {
@@ -252,10 +310,12 @@ public final class PluginProjectService implements Disposable {
                                 }
                                 record.touch();
                                 methodHistoryManager.save(record);
+                                requestGutterIconRefresh(psiFile);
                             }
                         });
                     });
                 }, isAutoUpdateEnabled());
+                requestGutterIconRefresh(psiFile);
             } catch (Exception ex) {
                 log.warn("刷新方法历史记录失败，方法签名：{}", methodKey, ex);
             }
@@ -319,6 +379,9 @@ public final class PluginProjectService implements Disposable {
 
         if (record == null) {
             return curComment.isEmpty() ? MethodStatus.NEW_METHOD_WITHOUT_COMMENT : MethodStatus.NEW_METHOD_WITH_COMMENT;
+        } else if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(record.getStatus())
+                || MethodStatus.NEW_METHOD_WITH_COMMENT.equals(record.getStatus())) {
+            return record.getStatus();
         }
 
         String oldComment = record.getOldComment();

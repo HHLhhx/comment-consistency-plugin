@@ -6,10 +6,10 @@ import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.IconLoader;
-import com.intellij.psi.*;
-import com.nju.comment.history.MethodHistoryManager;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiIdentifier;
+import com.intellij.psi.PsiMethod;
 import com.nju.comment.pojo.MethodStatus;
-import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.service.PluginProjectService;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -18,78 +18,96 @@ import javax.swing.*;
 
 /**
  * 在需要手动触发注释更新/生成的方法旁边显示 Gutter 图标。
- * <ul>
- *   <li>NEW_METHOD_WITHOUT_COMMENT：无论自动更新开关，始终显示（需手动生成）</li>
- *   <li>METHOD_CHANGED / 方法体漂移：仅在自动更新关闭时显示（需手动更新）</li>
- * </ul>
+ * <p>
+ * tooltip 与点击弹窗文案均在展示/点击时实时调用 {@code preCheckChange} 获取最新状态，
+ * 确保文案始终与方法当前变更类型一致。
  */
 public class CommentGutterIconProvider implements LineMarkerProvider {
 
     private static final Icon ICON = IconLoader.getIcon("/icons/comment.png", CommentGutterIconProvider.class);
 
-    private final MethodHistoryManager historyManager =
-            new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
+    /**
+     * 不同状态对应的 Gutter 提示文案
+     */
+    private record GutterText(String tooltip, String message, String confirmText) {
+    }
+
+    private static @Nullable GutterText resolveText(MethodStatus status) {
+        if (status == null) return null;
+        return switch (status) {
+            case COMMENT_CHANGED -> new GutterText(
+                    "检测到注释变更，点击更新",
+                    "检测到该方法的注释与历史版本不一致，是否确定以当前注释为准？",
+                    "确定");
+            case METHOD_CHANGED -> new GutterText(
+                    "检测到方法体变更，点击更新注释",
+                    "检测到该方法的实现发生变化，是否更新注释？",
+                    "更新");
+            case NEW_METHOD_WITHOUT_COMMENT -> new GutterText(
+                    "检测到新方法且缺少注释，点击生成注释",
+                    "检测到新方法且缺少注释，是否为该方法生成注释？",
+                    "生成");
+            case NEW_METHOD_WITH_COMMENT -> new GutterText(
+                    "检测到新方法，点击更新",
+                    "检测到新方法，是否确定将该方法加入注释一致性维护管理？",
+                    "确定");
+            default -> null;
+        };
+    }
 
     @Override
     public @Nullable LineMarkerInfo<?> getLineMarkerInfo(@NotNull PsiElement element) {
         if (!(element instanceof PsiIdentifier)) return null;
-        PsiElement parent = element.getParent();
-        if (!(parent instanceof PsiMethod method)) return null;
+        if (!(element.getParent() instanceof PsiMethod method)) return null;
 
         Project project = method.getProject();
         PluginProjectService service = project.getService(PluginProjectService.class);
 
+        // 初次检查：决定是否显示图标
         MethodStatus status = service.preCheckChange(method);
-
-        if (MethodStatus.UNCHANGED.equals(status)) return null;
-
-        String tooltip;
-        String message;
-        String yesText;
-
-        if (MethodStatus.COMMENT_CHANGED.equals(status)) {
-            tooltip = "检测到注释变更，点击更新";
-            message = "检测到该方法的注释与历史版本不一致，是否确定以当前注释为准？";
-            yesText = "确定";
-        } else if (MethodStatus.METHOD_CHANGED.equals(status)) {
-            tooltip = "检测到方法体变更，点击更新注释";
-            message = "检测到该方法的实现发生变化，是否更新注释？";
-            yesText = "更新";
-        } else if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(status)) {
-            tooltip = "检测到新方法且缺少注释，点击生成注释";
-            message = "检测到新方法且缺少注释，是否为该方法生成注释？";
-            yesText = "生成";
-        } else if (MethodStatus.NEW_METHOD_WITH_COMMENT.equals(status)) {
-            tooltip = "检测到新方法，点击更新";
-            message = "检测到新方法，是否确定将该方法加入注释一致性维护管理？";
-            yesText = "确定";
-        } else {
-            tooltip = "";
-            message = "";
-            yesText = "";
-        }
+        if (resolveText(status) == null) return null;
 
         return new LineMarkerInfo<>(
                 element,
                 element.getTextRange(),
                 ICON,
-                e -> tooltip,
-                (mouseEvent, el) -> {
-                    PsiMethod m = (PsiMethod) el.getParent();
-
-                    int result = Messages.showYesNoDialog(project, message, "注释一致性维护管理", yesText, "取消",
-                            Messages.getQuestionIcon());
-                    if (result == Messages.YES) {
-                        PluginProjectService svc = project.getService(PluginProjectService.class);
-                        if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(status)) {
-                            svc.generateComment(m);
-                        } else {
-                            svc.refreshMethodHistory(m);
-                        }
-                    }
-                },
+                this::computeTooltip,
+                (mouseEvent, el) -> handleClick(el, project),
                 GutterIconRenderer.Alignment.LEFT,
-                () -> tooltip
+                () -> "注释一致性维护"
         );
+    }
+
+    /**
+     * 每次 hover 时实时获取最新状态并返回对应 tooltip
+     */
+    private String computeTooltip(PsiElement element) {
+        if (!(element.getParent() instanceof PsiMethod method) || !method.isValid()) return "";
+        MethodStatus status = method.getProject().getService(PluginProjectService.class).preCheckChange(method);
+        GutterText text = resolveText(status);
+        return text != null ? text.tooltip() : "";
+    }
+
+    /**
+     * 点击时实时获取最新状态，展示对应弹窗并执行操作
+     */
+    private void handleClick(PsiElement element, Project project) {
+        if (!(element.getParent() instanceof PsiMethod method) || !method.isValid()) return;
+
+        PluginProjectService service = project.getService(PluginProjectService.class);
+        MethodStatus status = service.preCheckChange(method);
+        GutterText text = resolveText(status);
+        if (text == null) return;
+
+        int result = Messages.showYesNoDialog(
+                project, text.message(), "注释一致性维护管理",
+                text.confirmText(), "取消", Messages.getQuestionIcon());
+        if (result != Messages.YES) return;
+
+        if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(status)) {
+            service.generateComment(method);
+        } else {
+            service.refreshMethodHistory(method);
+        }
     }
 }

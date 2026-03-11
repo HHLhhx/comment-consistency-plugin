@@ -35,7 +35,9 @@ public class UpdateCommentOnMethodAction extends AnAction {
         int offset = editor.getCaretModel().getOffset();
         PsiElement element = ReadAction.compute(() -> psiFile.findElementAt(offset));
         PsiMethod method = ReadAction.compute(() -> PsiTreeUtil.getParentOfType(element, PsiMethod.class));
-        if (method == null || MethodStatus.UNCHANGED.equals(service.preCheckChange(method))) {
+        if (method == null
+                || MethodStatus.UNCHANGED.equals(service.preCheckChange(method))
+                || MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(service.preCheckChange(method))) {
             return;
         }
 
@@ -74,7 +76,9 @@ public class UpdateCommentOnMethodAction extends AnAction {
                 }
             }
             PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
-            return method != null && !MethodStatus.UNCHANGED.equals(service.preCheckChange(method));
+            return method != null
+                    && !MethodStatus.UNCHANGED.equals(service.preCheckChange(method))
+                    && !MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(service.preCheckChange(method));
         });
 
         presentation.setEnabledAndVisible(visible);
