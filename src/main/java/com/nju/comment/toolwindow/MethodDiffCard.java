@@ -17,7 +17,7 @@ import com.intellij.util.ui.JBUI;
 import com.nju.comment.pojo.MethodRecord;
 import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.history.MethodHistoryManager;
-import com.nju.comment.history.MethodHistoryRepositoryImpl;
+import com.nju.comment.service.PluginProjectService;
 
 import javax.swing.*;
 import java.awt.*;
@@ -49,12 +49,12 @@ public class MethodDiffCard extends JPanel {
 
     private final Project project;
     private final MethodRecord record;
-    private final MethodHistoryManager historyManager =
-            new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
+    private final MethodHistoryManager historyManager;
 
     public MethodDiffCard(Project project, MethodRecord record) {
         this.project = project;
         this.record = record;
+        this.historyManager = project.getService(PluginProjectService.class).getMethodHistoryManager();
 
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createCompoundBorder(

@@ -63,9 +63,7 @@ public class  SettingsPanel extends JPanel {
         logoutBtn.setForeground(JBColor.RED);
         logoutBtn.addActionListener(e -> {
             CommentGeneratorClient.logout();
-            PluginProjectService svc = project.getService(PluginProjectService.class);
-            svc.setAutoUpdateEnabled(false);
-            svc.setAutoCleanEnabled(false);
+            project.getService(PluginProjectService.class).onUserLogout();
             onLogout.run();
         });
 
@@ -169,7 +167,10 @@ public class  SettingsPanel extends JPanel {
         panel.add(toggleRow("自动更新方法注释",
                 "定期自动检测并更新所有方法的注释",
                 service.isAutoUpdateEnabled(),
-                service::setAutoUpdateEnabled));
+                enabled -> {
+                    service.setAutoUpdateEnabled(enabled);
+                    service.saveCurrentSettings();
+                }));
         panel.add(Box.createVerticalStrut(8));
 
         return panel;

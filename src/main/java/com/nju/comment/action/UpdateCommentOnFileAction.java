@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
+import com.nju.comment.client.global.AuthManager;
 import com.nju.comment.service.PluginProjectService;
 import org.jetbrains.annotations.NotNull;
 
@@ -14,6 +15,10 @@ public class UpdateCommentOnFileAction extends AnAction {
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
+        if (!AuthManager.isLoggedIn()) {
+            return;
+        }
+
         Editor editor = e.getData(CommonDataKeys.EDITOR);
         Project project = e.getProject();
         if (editor == null || project == null) {
@@ -45,6 +50,11 @@ public class UpdateCommentOnFileAction extends AnAction {
     @Override
     public void update(@NotNull AnActionEvent e) {
         Presentation presentation = e.getPresentation();
+
+        if (!AuthManager.isLoggedIn()) {
+            presentation.setEnabledAndVisible(false);
+            return;
+        }
 
         Project project = e.getProject();
         if (project != null) {

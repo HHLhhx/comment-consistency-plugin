@@ -41,6 +41,9 @@ public final class PluginProjectService implements Disposable {
     private static final long GUTTER_REFRESH_DEBOUNCE_MS = 500;
 
     private final Project project;
+    private final MethodHistoryRepositoryImpl repository;
+
+    @Getter
     private final MethodHistoryManager methodHistoryManager;
     /** 去抖：每个文件对应一个延迟 restart 任务，新变更重置计时 */
     private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingRefreshes = new ConcurrentHashMap<>();
@@ -48,13 +51,17 @@ public final class PluginProjectService implements Disposable {
     @Getter
     private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
 
+    @Getter
+    private UserSettingsManager userSettings;
+
     private ScheduledExecutorService autoScheduler;
     private ScheduledFuture<?> autoUpdateTask;
     private ScheduledFuture<?> autoCleanTask;
 
     public PluginProjectService(Project project) {
         this.project = project;
-        this.methodHistoryManager = new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
+        this.repository = new MethodHistoryRepositoryImpl();
+        this.methodHistoryManager = new MethodHistoryManager(repository);
     }
 
     // ==================== 自动化调度 ====================
@@ -161,18 +168,61 @@ public final class PluginProjectService implements Disposable {
         log.info("项目启动初始化");
         AuthManager.init();
         CommentGeneratorClient.init(DEFAULT_BASE_URL);
-        setAutoCleanEnabled(true);
         registerGutterRefreshListener();
 
         if (AuthManager.isLoggedIn()) {
+            onUserLogin();
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
                 CommentGeneratorClient.getAvailableModels();
                 initializationFuture.complete(null);
             });
         } else {
-            // 未登录时直接完成初始化，等待用户在工具窗口中登录
             initializationFuture.complete(null);
         }
+    }
+
+    /**
+     * 用户登录后调用：恢复持久化设置，启动自动化任务。
+     */
+    public void onUserLogin() {
+        String username = AuthManager.getUsername();
+        this.userSettings = new UserSettingsManager(project, username);
+
+        // 清除前一用户的内存数据
+        repository.clear();
+
+        // 恢复用户设置
+        String model = userSettings.getSelectedModel();
+        if (model != null) CommentGeneratorClient.setSelectedModel(model);
+        CommentGeneratorClient.setRagEnabled(userSettings.isRagEnabled());
+
+        // 启动自动化任务
+        setAutoUpdateEnabled(userSettings.isAutoUpdateEnabled());
+        setAutoCleanEnabled(true);
+
+        log.info("用户 {} 登录，已恢复设置", username);
+    }
+
+    /**
+     * 用户登出时调用：保存设置，停止任务，清除数据。
+     */
+    public void onUserLogout() {
+        saveCurrentSettings();
+        setAutoUpdateEnabled(false);
+        setAutoCleanEnabled(false);
+        repository.clear();
+        userSettings = null;
+        log.info("用户已登出，已清理资源");
+    }
+
+    /**
+     * 保存当前运行时设置到持久化存储。
+     */
+    public void saveCurrentSettings() {
+        if (userSettings == null) return;
+        userSettings.setSelectedModel(CommentGeneratorClient.getSelectedModel());
+        userSettings.setRagEnabled(CommentGeneratorClient.isRagEnabled());
+        userSettings.setAutoUpdateEnabled(isAutoUpdateEnabled());
     }
 
     /**
@@ -405,6 +455,7 @@ public final class PluginProjectService implements Disposable {
     @Override
     public void dispose() {
         log.info("项目关闭，释放资源");
+        saveCurrentSettings();
         setAutoUpdateEnabled(false);
         setAutoCleanEnabled(false);
         if (autoScheduler != null) {

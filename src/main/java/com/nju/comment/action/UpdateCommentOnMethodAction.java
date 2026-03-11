@@ -7,6 +7,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.nju.comment.client.global.AuthManager;
 import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.service.PluginProjectService;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +18,10 @@ public class UpdateCommentOnMethodAction extends AnAction {
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
+        if (!AuthManager.isLoggedIn()) {
+            return;
+        }
+
         Editor editor = e.getData(CommonDataKeys.EDITOR);
         Project project = e.getProject();
         if (editor == null || project == null) {
@@ -52,6 +57,11 @@ public class UpdateCommentOnMethodAction extends AnAction {
     @Override
     public void update(@NotNull AnActionEvent e) {
         Presentation presentation = e.getPresentation();
+
+        if (!AuthManager.isLoggedIn()) {
+            presentation.setEnabledAndVisible(false);
+            return;
+        }
 
         Project project = e.getProject();
         if (project == null) {

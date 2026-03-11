@@ -10,15 +10,9 @@ public class MethodHistoryRepositoryImpl implements MethodHistoryRepository {
 
     private final ConcurrentHashMap<String, MethodRecord> history = new ConcurrentHashMap<>();
 
-    private MethodHistoryRepositoryImpl() {
-    }
-
-    public static MethodHistoryRepositoryImpl getInstance() {
-        return Holder.INSTANCE;
-    }
-
-    private static class Holder {
-        private static final MethodHistoryRepositoryImpl INSTANCE = new MethodHistoryRepositoryImpl();
+    @Override
+    public void clear() {
+        history.clear();
     }
 
     @Override

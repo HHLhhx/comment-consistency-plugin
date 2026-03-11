@@ -44,8 +44,9 @@ public class MainToolWindowFactory implements ToolWindowFactory {
     static void showLogin(JPanel root, Project project, ToolWindow toolWindow) {
         disposeAndClear(root);
         root.add(new LoginPanel(project, () -> {
-            showMain(root, project, toolWindow);
             PluginProjectService svc = project.getService(PluginProjectService.class);
+            svc.onUserLogin();
+            showMain(root, project, toolWindow);
             DumbService.getInstance(project).runWhenSmart(svc::refreshAllMethodHistories);
         }), BorderLayout.CENTER);
         root.revalidate();

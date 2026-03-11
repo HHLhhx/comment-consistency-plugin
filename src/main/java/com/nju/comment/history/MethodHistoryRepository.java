@@ -6,6 +6,8 @@ import java.util.List;
 
 public interface MethodHistoryRepository {
 
+    void clear();
+
     MethodRecord findByKey(String key);
 
     void save(MethodRecord record);

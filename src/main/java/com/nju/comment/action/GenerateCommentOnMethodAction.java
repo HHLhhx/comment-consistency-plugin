@@ -10,6 +10,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.nju.comment.client.global.AuthManager;
 import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.service.PluginProjectService;
 import org.jetbrains.annotations.NotNull;
@@ -18,6 +19,10 @@ public class GenerateCommentOnMethodAction extends AnAction {
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
+        if (!AuthManager.isLoggedIn()) {
+            return;
+        }
+
         Editor editor = e.getData(CommonDataKeys.EDITOR);
         Project project = e.getProject();
         if (editor == null || project == null) {
@@ -53,6 +58,11 @@ public class GenerateCommentOnMethodAction extends AnAction {
     @Override
     public void update(@NotNull AnActionEvent e) {
         Presentation presentation = e.getPresentation();
+
+        if (!AuthManager.isLoggedIn()) {
+            presentation.setEnabledAndVisible(false);
+            return;
+        }
 
         boolean visible = ReadAction.compute(() -> {
             PsiElement element = e.getData(CommonDataKeys.PSI_ELEMENT);

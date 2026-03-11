@@ -9,6 +9,7 @@ import com.intellij.openapi.util.IconLoader;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiIdentifier;
 import com.intellij.psi.PsiMethod;
+import com.nju.comment.client.global.AuthManager;
 import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.service.PluginProjectService;
 import org.jetbrains.annotations.NotNull;
@@ -57,6 +58,8 @@ public class CommentGutterIconProvider implements LineMarkerProvider {
 
     @Override
     public @Nullable LineMarkerInfo<?> getLineMarkerInfo(@NotNull PsiElement element) {
+        if (!AuthManager.isLoggedIn()) return null;
+
         if (!(element instanceof PsiIdentifier)) return null;
         if (!(element.getParent() instanceof PsiMethod method)) return null;
 

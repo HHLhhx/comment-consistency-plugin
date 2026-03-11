@@ -13,8 +13,6 @@ import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.pojo.MethodRecord;
 import com.nju.comment.pojo.MethodStatus;
-import com.nju.comment.history.MethodHistoryManager;
-import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.service.PluginProjectService;
 import lombok.extern.slf4j.Slf4j;
 
@@ -41,11 +39,11 @@ public class MainPanel extends JPanel implements Disposable {
     private Set<String> lastSeenSignatures = null;
     private boolean suppressModelAction = false;
 
-    private final MethodHistoryManager historyManager =
-            new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
+    private final PluginProjectService pluginService;
 
     public MainPanel(Project project, Runnable onOpenSettings, Runnable onLogout) {
         this.project = project;
+        this.pluginService = project.getService(PluginProjectService.class);
         setLayout(new BorderLayout());
 
         comboBoxModel = new DefaultComboBoxModel<>();
@@ -108,9 +106,7 @@ public class MainPanel extends JPanel implements Disposable {
         logoutBtn.putClientProperty("JButton.buttonType", "borderless");
         logoutBtn.addActionListener(e -> {
             CommentGeneratorClient.logout();
-            PluginProjectService svc = project.getService(PluginProjectService.class);
-            svc.setAutoUpdateEnabled(false);
-            svc.setAutoCleanEnabled(false);
+            pluginService.onUserLogout();
             onLogout.run();
         });
 
@@ -131,7 +127,10 @@ public class MainPanel extends JPanel implements Disposable {
 
         JBLabel ragLabel = new JBLabel("RAG");
         ToggleSwitch ragToggle = new ToggleSwitch(CommentGeneratorClient.isRagEnabled());
-        ragToggle.addActionListener(e -> CommentGeneratorClient.setRagEnabled(ragToggle.isSelected()));
+        ragToggle.addActionListener(e -> {
+            CommentGeneratorClient.setRagEnabled(ragToggle.isSelected());
+            pluginService.saveCurrentSettings();
+        });
         leftRow2.add(ragLabel);
         leftRow2.add(ragToggle);
 
@@ -140,12 +139,10 @@ public class MainPanel extends JPanel implements Disposable {
 
         JButton updateAllBtn = new JButton("更新全部");
         updateAllBtn.setFont(updateAllBtn.getFont().deriveFont(11f));
-        PluginProjectService autoCheckSvc = project.getService(PluginProjectService.class);
-        updateAllBtn.setEnabled(!autoCheckSvc.isAutoUpdateEnabled());
+        updateAllBtn.setEnabled(!pluginService.isAutoUpdateEnabled());
         updateAllBtn.addActionListener(e -> {
-            PluginProjectService svc = project.getService(PluginProjectService.class);
-            if (!svc.isAutoUpdateEnabled()) {
-                svc.refreshAllMethodHistories();
+            if (!pluginService.isAutoUpdateEnabled()) {
+                pluginService.refreshAllMethodHistories();
             }
         });
         rightRow2.add(updateAllBtn);
@@ -166,7 +163,10 @@ public class MainPanel extends JPanel implements Disposable {
         modelCombo.addActionListener(e -> {
             if (suppressModelAction) return;
             String sel = (String) modelCombo.getSelectedItem();
-            if (sel != null) CommentGeneratorClient.setSelectedModel(sel);
+            if (sel != null) {
+                CommentGeneratorClient.setSelectedModel(sel);
+                pluginService.saveCurrentSettings();
+            }
         });
 
         return toolbar;
@@ -184,7 +184,7 @@ public class MainPanel extends JPanel implements Disposable {
     // ==================== 卡片列表轮询 ====================
 
     private void pollAndRefreshCards() {
-        List<MethodRecord> staged = historyManager.findAll().stream()
+        List<MethodRecord> staged = pluginService.getMethodHistoryManager().findAll().stream()
                 .filter(r -> MethodStatus.TO_BE_GENERATE.equals(r.getStatus())
                         || MethodStatus.TO_BE_UPDATE.equals(r.getStatus()))
                 .filter(r -> r.getStagedComment() != null && !r.getStagedComment().isBlank())
