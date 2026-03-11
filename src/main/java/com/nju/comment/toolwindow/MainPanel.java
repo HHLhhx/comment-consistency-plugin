@@ -140,9 +140,13 @@ public class MainPanel extends JPanel implements Disposable {
 
         JButton updateAllBtn = new JButton("更新全部");
         updateAllBtn.setFont(updateAllBtn.getFont().deriveFont(11f));
+        PluginProjectService autoCheckSvc = project.getService(PluginProjectService.class);
+        updateAllBtn.setEnabled(!autoCheckSvc.isAutoUpdateEnabled());
         updateAllBtn.addActionListener(e -> {
             PluginProjectService svc = project.getService(PluginProjectService.class);
-            svc.refreshAllMethodHistories();
+            if (!svc.isAutoUpdateEnabled()) {
+                svc.refreshAllMethodHistories();
+            }
         });
         rightRow2.add(updateAllBtn);
 

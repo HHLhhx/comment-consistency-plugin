@@ -1,17 +1,21 @@
-<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<!-- Plugin Configuration File. Read more:
+https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
+    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin
+    versions. -->
     <id>com.nju.comment-consistency-plugin</id>
 
     <!-- Public plugin name should be written in Title Case.
-         Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
+         Guidelines:
+    https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
     <name>Comment-Consistency</name>
 
     <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
     <vendor url="https://github.com/HHLhhx">HHLhhx</vendor>
 
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
-         Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
+         Guidelines:
+    https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
         本项目旨在实现一款面向开发者工作流的即时工具。
         它通过集成大型语言模型，在代码编写过程中主动检测注释与实现逻辑的语义不一致，并提供智能修复建议，从而在源头保障软件文档质量，提升开发与维护效率。
@@ -25,38 +29,40 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <postStartupActivity implementation="com.nju.comment.PluginStartupActivity"/>
+        <postStartupActivity implementation="com.nju.comment.PluginStartupActivity" />
         <toolWindow id="Comment Consistency"
-                    factoryClass="com.nju.comment.toolwindow.MainToolWindowFactory"
-                    anchor="right"
-                    icon="/icons/comment.png"
-                    secondary="true"/>
+            factoryClass="com.nju.comment.toolwindow.MainToolWindowFactory"
+            anchor="right"
+            icon="/icons/comment.png"
+            secondary="true" />
         <notificationGroup id="Comment Consistency"
-                           displayType="BALLOON"
-                           isLogByDefault="true"/>
+            displayType="BALLOON"
+            isLogByDefault="true" />
+        <codeInsight.lineMarkerProvider language="JAVA"
+            implementationClass="com.nju.comment.provider.CommentGutterIconProvider" />
     </extensions>
 
     <actions>
         <action id="CommentGenerator.GenerateFromMethod"
-                class="com.nju.comment.action.GenerateCommentOnMethodAction"
-                text="Generate Comment in Method"
-                description="Generate method comment by backend">
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut first-keystroke="ctrl alt 1" keymap="$default"/>
+            class="com.nju.comment.action.GenerateCommentOnMethodAction"
+            text="Generate Comment in Method"
+            description="Generate method comment by backend">
+            <add-to-group group-id="EditorPopupMenu" anchor="last" />
+            <keyboard-shortcut first-keystroke="ctrl alt 1" keymap="$default" />
         </action>
         <action id="CommentGenerator.UpdateFromMethod"
-                class="com.nju.comment.action.UpdateCommentOnMethodAction"
-                text="Update Comment in Method"
-                description="Update method comment by backend">
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut first-keystroke="ctrl alt 2" keymap="$default"/>
+            class="com.nju.comment.action.UpdateCommentOnMethodAction"
+            text="Update Comment in Method"
+            description="Update method comment by backend">
+            <add-to-group group-id="EditorPopupMenu" anchor="last" />
+            <keyboard-shortcut first-keystroke="ctrl alt 2" keymap="$default" />
         </action>
         <action id="CommentGenerator.UpdateFromFile"
-                class="com.nju.comment.action.UpdateCommentOnFileAction"
-                text="Update Comments in File"
-                description="Update all method comments in current file by backend">
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut first-keystroke="ctrl alt 3" keymap="$default"/>
+            class="com.nju.comment.action.UpdateCommentOnFileAction"
+            text="Update Comments in File"
+            description="Update all method comments in current file by backend">
+            <add-to-group group-id="EditorPopupMenu" anchor="last" />
+            <keyboard-shortcut first-keystroke="ctrl alt 3" keymap="$default" />
         </action>
     </actions>
 </idea-plugin>

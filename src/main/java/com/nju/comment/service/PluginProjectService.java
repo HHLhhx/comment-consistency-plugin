@@ -90,15 +90,13 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    public boolean isAutoCleanEnabled() {
-        return autoCleanTask != null && !autoCleanTask.isCancelled();
-    }
-
     private void ensureScheduler() {
         if (autoScheduler == null || autoScheduler.isShutdown()) {
             autoScheduler = Executors.newSingleThreadScheduledExecutor();
         }
     }
+
+    // ==================== 项目服务 ====================
 
     /**
      * 项目启动时初始化
@@ -256,7 +254,7 @@ public final class PluginProjectService implements Disposable {
                             }
                         });
                     });
-                });
+                }, isAutoUpdateEnabled());
             } catch (Exception ex) {
                 log.warn("刷新方法历史记录失败，方法签名：{}", methodKey, ex);
             }

@@ -30,7 +30,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
      * @param method                当前方法
      * @param commentGeneratorAsync 用于生成注释的异步回调函数，接受MethodContext和MethodStatus两个参数
      */
-    public void updateMethodHistoryAsync(PsiMethod method, BiConsumer<MethodContext, MethodStatus> commentGeneratorAsync) {
+    public void updateMethodHistoryAsync(PsiMethod method, BiConsumer<MethodContext, MethodStatus> commentGeneratorAsync, boolean isAutoUpdateEnabled) {
         // 提取方法关键信息
         String path = MethodRecordUtil.getFilePath(method);
         if (path == null) return;
@@ -75,6 +75,12 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
         } else if (result.requiresCancel()) {
             // 取消在途注释生成请求
             CommentGeneratorClient.cancelForMethod(key);
+        }
+
+        // 自动更新关闭时，需要更新至稳态
+        if (!isAutoUpdateEnabled
+                && (MethodStatus.NEW_METHOD_WITH_COMMENT.equals(result.state()) || MethodStatus.COMMENT_CHANGED.equals(result.state()))) {
+            updateMethodHistoryAsync(method, commentGeneratorAsync, isAutoUpdateEnabled);
         }
     }
 

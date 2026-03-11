@@ -22,6 +22,9 @@ public class UpdateCommentOnMethodAction extends AnAction {
             return;
         }
 
+        PluginProjectService service = project.getService(PluginProjectService.class);
+        if (service.isAutoUpdateEnabled()) return;
+
         PsiFile psiFile = ReadAction.compute(() ->
                 PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument()));
         if (psiFile == null) {
@@ -35,7 +38,6 @@ public class UpdateCommentOnMethodAction extends AnAction {
             return;
         }
 
-        PluginProjectService service = project.getService(PluginProjectService.class);
         service.refreshMethodHistory(method);
     }
 
@@ -47,6 +49,15 @@ public class UpdateCommentOnMethodAction extends AnAction {
     @Override
     public void update(@NotNull AnActionEvent e) {
         Presentation presentation = e.getPresentation();
+
+        Project project = e.getProject();
+        if (project != null) {
+            PluginProjectService service = project.getService(PluginProjectService.class);
+            if (service.isAutoUpdateEnabled()) {
+                presentation.setEnabledAndVisible(false);
+                return;
+            }
+        }
 
         boolean visible = ReadAction.compute(() -> {
             PsiElement element = e.getData(CommonDataKeys.PSI_ELEMENT);

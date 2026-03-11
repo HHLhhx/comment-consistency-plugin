@@ -252,17 +252,10 @@ public class MethodDiffCard extends JPanel {
                 method.addBefore(newComment, method.getFirstChild());
             }
 
-            if (MethodStatus.TO_BE_GENERATE.equals(record.getStatus())) {
-                record.copyStagedToOldMethod();
-                record.copyStagedToOldComment();
-                record.clearStagedComment();
-                record.setStatus(MethodStatus.NEW_METHOD_WITH_COMMENT);
-            } else if (MethodStatus.TO_BE_UPDATE.equals(record.getStatus())) {
-                record.copyStagedToOldMethod();
-                record.copyStagedToOldComment();
-                record.clearStagedComment();
-                record.setStatus(MethodStatus.UNCHANGED);
-            }
+            record.copyStagedToOldMethod();
+            record.copyStagedToOldComment();
+            record.clearStagedComment();
+            record.setStatus(MethodStatus.UNCHANGED);
             historyManager.save(record);
         });
     }

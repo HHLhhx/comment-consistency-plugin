@@ -172,11 +172,6 @@ public class  SettingsPanel extends JPanel {
                 service::setAutoUpdateEnabled));
         panel.add(Box.createVerticalStrut(8));
 
-        panel.add(toggleRow("自动清理已删除方法",
-                "定期清理已不存在的方法记录",
-                service.isAutoCleanEnabled(),
-                service::setAutoCleanEnabled));
-
         return panel;
     }
 
