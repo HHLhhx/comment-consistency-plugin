@@ -7,6 +7,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.service.PluginProjectService;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -34,7 +35,7 @@ public class UpdateCommentOnMethodAction extends AnAction {
         int offset = editor.getCaretModel().getOffset();
         PsiElement element = ReadAction.compute(() -> psiFile.findElementAt(offset));
         PsiMethod method = ReadAction.compute(() -> PsiTreeUtil.getParentOfType(element, PsiMethod.class));
-        if (method == null) {
+        if (method == null || MethodStatus.UNCHANGED.equals(service.preCheckChange(method))) {
             return;
         }
 
@@ -51,12 +52,15 @@ public class UpdateCommentOnMethodAction extends AnAction {
         Presentation presentation = e.getPresentation();
 
         Project project = e.getProject();
-        if (project != null) {
-            PluginProjectService service = project.getService(PluginProjectService.class);
-            if (service.isAutoUpdateEnabled()) {
-                presentation.setEnabledAndVisible(false);
-                return;
-            }
+        if (project == null) {
+            presentation.setEnabledAndVisible(false);
+            return;
+        }
+
+        PluginProjectService service = project.getService(PluginProjectService.class);
+        if (service.isAutoUpdateEnabled()) {
+            presentation.setEnabledAndVisible(false);
+            return;
         }
 
         boolean visible = ReadAction.compute(() -> {
@@ -69,7 +73,8 @@ public class UpdateCommentOnMethodAction extends AnAction {
                     element = file.findElementAt(offset);
                 }
             }
-            return PsiTreeUtil.getParentOfType(element, PsiMethod.class) != null;
+            PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
+            return method != null && !MethodStatus.UNCHANGED.equals(service.preCheckChange(method));
         });
 
         presentation.setEnabledAndVisible(visible);

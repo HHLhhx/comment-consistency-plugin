@@ -14,8 +14,8 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.ui.JBUI;
-import com.nju.comment.dto.MethodRecord;
-import com.nju.comment.dto.MethodStatus;
+import com.nju.comment.pojo.MethodRecord;
+import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 

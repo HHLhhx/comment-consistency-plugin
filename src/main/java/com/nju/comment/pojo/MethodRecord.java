@@ -1,4 +1,4 @@
-package com.nju.comment.dto;
+package com.nju.comment.pojo;
 
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.SmartPointerManager;

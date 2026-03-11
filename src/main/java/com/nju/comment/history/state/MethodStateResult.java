@@ -1,8 +1,8 @@
 package com.nju.comment.history.state;
 
-import com.nju.comment.dto.MethodContext;
-import com.nju.comment.dto.MethodRecord;
-import com.nju.comment.dto.MethodStatus;
+import com.nju.comment.pojo.MethodContext;
+import com.nju.comment.pojo.MethodRecord;
+import com.nju.comment.pojo.MethodStatus;
 
 import java.util.Optional;
 

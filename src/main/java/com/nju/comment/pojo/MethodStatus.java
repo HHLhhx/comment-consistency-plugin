@@ -1,4 +1,4 @@
-package com.nju.comment.dto;
+package com.nju.comment.pojo;
 
 public enum MethodStatus {
     NEW_METHOD_WITHOUT_COMMENT("NEW_METHOD_WITHOUT_COMMENT"),

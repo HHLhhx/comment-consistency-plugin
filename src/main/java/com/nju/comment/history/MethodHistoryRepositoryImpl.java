@@ -1,6 +1,6 @@
 package com.nju.comment.history;
 
-import com.nju.comment.dto.MethodRecord;
+import com.nju.comment.pojo.MethodRecord;
 import com.nju.comment.util.MethodRecordUtil;
 
 import java.util.List;

@@ -2,9 +2,9 @@ package com.nju.comment.client.global;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.nju.comment.constant.Constant;
-import com.nju.comment.dto.GenerateOptions;
-import com.nju.comment.dto.InFlightRecord;
-import com.nju.comment.dto.MethodContext;
+import com.nju.comment.pojo.GenerateOptions;
+import com.nju.comment.pojo.InFlightRecord;
+import com.nju.comment.pojo.MethodContext;
 import com.nju.comment.dto.request.ApiKeyRequest;
 import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.request.LoginRequest;

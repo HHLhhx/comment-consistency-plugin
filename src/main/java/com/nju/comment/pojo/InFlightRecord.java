@@ -1,4 +1,4 @@
-package com.nju.comment.dto;
+package com.nju.comment.pojo;
 
 import com.nju.comment.dto.response.CommentResponse;
 import lombok.AllArgsConstructor;

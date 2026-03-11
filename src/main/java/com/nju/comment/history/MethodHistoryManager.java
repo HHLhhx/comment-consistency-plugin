@@ -1,20 +1,18 @@
 package com.nju.comment.history;
 
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.psi.PsiComment;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.nju.comment.client.global.CommentGeneratorClient;
-import com.nju.comment.dto.*;
 import com.nju.comment.history.state.MethodStateContext;
 import com.nju.comment.history.state.MethodStateMachine;
 import com.nju.comment.history.state.MethodStateResult;
+import com.nju.comment.pojo.MethodContext;
+import com.nju.comment.pojo.MethodRecord;
+import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.util.MethodRecordUtil;
 import com.nju.comment.util.TextProcessUtil;
 import lombok.extern.slf4j.Slf4j;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 import java.util.function.BiConsumer;
@@ -45,7 +43,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
             PsiDocComment pdc = method.getDocComment();
             return pdc != null ? pdc.getText().trim() : "";
         });
-        String curMethod = getMethodTextWithoutComments(method);
+        String curMethod = MethodRecordUtil.getMethodTextWithoutComments(method);
 
         // 预处理文本
         curComment = TextProcessUtil.processComment(curComment);
@@ -141,30 +139,6 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
      */
     public List<MethodRecord> findAll() {
         return repository.findAll();
-    }
-
-    /**
-     * 获取方法文本内容，去除注释部分
-     *
-     * @param method 方法
-     * @return 方法文本内容
-     */
-    private static @NotNull String getMethodTextWithoutComments(PsiMethod method) {
-        return ReadAction.compute(() -> {
-            PsiElement firstChild = method.getFirstChild();
-            while (firstChild instanceof PsiComment ||
-                    firstChild instanceof PsiWhiteSpace) {
-                firstChild = firstChild.getNextSibling();
-            }
-
-            String mtd = "";
-            if (firstChild != null) {
-                int methodStartOffset = firstChild.getTextRange().getStartOffset();
-                int endOffset = method.getTextRange().getEndOffset();
-                mtd = method.getContainingFile().getText().substring(methodStartOffset, endOffset).trim();
-            }
-            return mtd;
-        });
     }
 
     /**

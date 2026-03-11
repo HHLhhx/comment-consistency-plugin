@@ -12,20 +12,20 @@ public final class TextProcessUtil {
         comment = safeTrimNullable(comment);
 
         if (comment.isEmpty()) {
-            return comment;
+            return "";
         }
 
         int startIndex = comment.indexOf("/**");
         if (startIndex < 0) {
             log.warn("注释文本不符合规范，缺少 /** 开头");
-            return null;
+            return "";
         }
         comment = comment.substring(startIndex);
 
         int endIndex = comment.lastIndexOf("*/");
         if (endIndex < 0) {
             log.warn("注释文本不符合规范，缺少 */ 结尾");
-            return null;
+            return "";
         }
         comment = comment.substring(0, endIndex + 2);
 

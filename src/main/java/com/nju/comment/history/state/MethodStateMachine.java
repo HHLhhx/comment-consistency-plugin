@@ -1,7 +1,7 @@
 package com.nju.comment.history.state;
 
-import com.nju.comment.dto.MethodRecord;
-import com.nju.comment.dto.MethodStatus;
+import com.nju.comment.pojo.MethodRecord;
+import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.history.state.impl.*;
 
 import java.util.List;

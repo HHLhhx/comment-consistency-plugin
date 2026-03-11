@@ -3,6 +3,7 @@ package com.nju.comment.util;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.StringJoiner;
 
@@ -74,5 +75,29 @@ public final class MethodRecordUtil {
         if (psiFile == null) return null;
         VirtualFile vf = psiFile.getVirtualFile();
         return vf != null ? vf.getPath() : null;
+    }
+
+    /**
+     * 获取方法文本内容，去除注释部分
+     *
+     * @param method 方法
+     * @return 方法文本内容
+     */
+    public static @NotNull String getMethodTextWithoutComments(PsiMethod method) {
+        return ReadAction.compute(() -> {
+            PsiElement firstChild = method.getFirstChild();
+            while (firstChild instanceof PsiComment ||
+                    firstChild instanceof PsiWhiteSpace) {
+                firstChild = firstChild.getNextSibling();
+            }
+
+            String mtd = "";
+            if (firstChild != null) {
+                int methodStartOffset = firstChild.getTextRange().getStartOffset();
+                int endOffset = method.getTextRange().getEndOffset();
+                mtd = method.getContainingFile().getText().substring(methodStartOffset, endOffset).trim();
+            }
+            return mtd;
+        });
     }
 }

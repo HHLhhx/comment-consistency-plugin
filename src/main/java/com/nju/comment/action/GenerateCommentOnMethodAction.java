@@ -10,7 +10,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.nju.comment.dto.MethodStatus;
+import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.service.PluginProjectService;
 import org.jetbrains.annotations.NotNull;
 
@@ -38,6 +38,10 @@ public class GenerateCommentOnMethodAction extends AnAction {
         }
 
         PluginProjectService service = project.getService(PluginProjectService.class);
+        if (!MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(service.preCheckChange(method))) {
+            return;
+        }
+
         service.generateComment(method);
     }
 
@@ -66,8 +70,7 @@ public class GenerateCommentOnMethodAction extends AnAction {
             Project project = e.getProject();
             if (project == null) return false;
             PluginProjectService service = project.getService(PluginProjectService.class);
-            MethodStatus status = service.getMethodStatus(method);
-            return MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(status);
+            return MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(service.preCheckChange(method));
         });
 
         presentation.setEnabledAndVisible(visible);

@@ -1,8 +1,8 @@
 package com.nju.comment.history.state;
 
 import com.intellij.psi.PsiMethod;
-import com.nju.comment.dto.MethodRecord;
-import com.nju.comment.dto.MethodStatus;
+import com.nju.comment.pojo.MethodRecord;
+import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.util.TextProcessUtil;
 import lombok.Getter;
 

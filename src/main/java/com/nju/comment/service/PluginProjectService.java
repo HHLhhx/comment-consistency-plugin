@@ -7,20 +7,21 @@ import com.intellij.openapi.components.Service;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
+import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.nju.comment.client.global.AuthManager;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.constant.Constant;
-import com.nju.comment.dto.GenerateOptions;
-import com.nju.comment.dto.MethodStatus;
+import com.nju.comment.pojo.GenerateOptions;
+import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.dto.request.CommentReqTag;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.util.TextProcessUtil;
 import com.nju.comment.util.MethodRecordUtil;
-import com.nju.comment.dto.MethodRecord;
+import com.nju.comment.pojo.MethodRecord;
 import com.nju.comment.util.MethodValidationUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -273,13 +274,14 @@ public final class PluginProjectService implements Disposable {
         }
 
         String methodKey = MethodRecordUtil.buildMethodKey(method);
-        MethodRecord record = methodHistoryManager.findByKey(methodKey);
-        if (record == null) {
-            // 方法记录不存在，刷新一次，此时为 NEW_METHOD_WITHOUT_COMMENT 或 NEW_METHOD_WITH_COMMENT 状态
-            doRefreshMethodHistory(method);
+        if (!MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(preCheckChange(method))) {
+            log.info("方法不处于可生成注释状态，跳过生成：{}", methodKey);
+            return;
         }
 
-        record = methodHistoryManager.findByKey(methodKey);
+        doRefreshMethodHistory(method);
+
+        MethodRecord record = methodHistoryManager.findByKey(methodKey);
         if (!MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(record.getStatus())) {
             log.info("方法不处于可生成注释状态，跳过生成：{}", methodKey);
             return;
@@ -292,31 +294,46 @@ public final class PluginProjectService implements Disposable {
     }
 
     /**
-     * 获取方法状态
+     * 检查方法变更类型
      *
      * @param method 目标方法
-     * @return 方法状态
+     * @return 变更类型
      */
-    public MethodStatus getMethodStatus(PsiMethod method) {
+    public MethodStatus preCheckChange(PsiMethod method) {
         if (method == null) {
-            log.warn("方法为空，无法获取状态");
+            log.warn("方法为空，无法检查变更");
             return null;
         }
 
         String methodKey = MethodRecordUtil.buildMethodKey(method);
         MethodRecord record = methodHistoryManager.findByKey(methodKey);
+
+        String curComment = ReadAction.compute(() -> {
+            PsiDocComment pdc = method.getDocComment();
+            return pdc != null ? pdc.getText().trim() : "";
+        });
+        String curMethod = MethodRecordUtil.getMethodTextWithoutComments(method);
+
+        curComment = TextProcessUtil.processComment(curComment);
+        curMethod = TextProcessUtil.processMethod(curMethod);
+
         if (record == null) {
-            // 方法记录不存在，刷新一次
-            doRefreshMethodHistory(method);
+            return curComment.isEmpty() ? MethodStatus.NEW_METHOD_WITHOUT_COMMENT : MethodStatus.NEW_METHOD_WITH_COMMENT;
         }
 
-        record = methodHistoryManager.findByKey(methodKey);
-        if (record == null) {
-            log.warn("方法记录不存在，无法获取状态：{}", methodKey);
-            return null;
+        String oldComment = record.getOldComment();
+        String oldMethod = record.getOldMethod();
+
+        boolean commentChanged = !oldComment.equals(curComment);
+        boolean methodChanged = !oldMethod.equals(curMethod);
+
+        if (commentChanged) {
+            return MethodStatus.COMMENT_CHANGED;
+        } else if (methodChanged) {
+            return MethodStatus.METHOD_CHANGED;
         }
 
-        return record.getStatus();
+        return MethodStatus.UNCHANGED;
     }
 
     /**

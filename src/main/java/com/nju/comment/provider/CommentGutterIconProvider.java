@@ -7,17 +7,14 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.psi.*;
-import com.nju.comment.dto.MethodRecord;
-import com.nju.comment.dto.MethodStatus;
+import com.nju.comment.history.MethodHistoryManager;
+import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.service.PluginProjectService;
-import com.nju.comment.util.MethodRecordUtil;
-import com.nju.comment.util.TextProcessUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.Objects;
 
 /**
  * 在需要手动触发注释更新/生成的方法旁边显示 Gutter 图标。
@@ -30,6 +27,9 @@ public class CommentGutterIconProvider implements LineMarkerProvider {
 
     private static final Icon ICON = IconLoader.getIcon("/icons/comment.png", CommentGutterIconProvider.class);
 
+    private final MethodHistoryManager historyManager =
+            new MethodHistoryManager(MethodHistoryRepositoryImpl.getInstance());
+
     @Override
     public @Nullable LineMarkerInfo<?> getLineMarkerInfo(@NotNull PsiElement element) {
         if (!(element instanceof PsiIdentifier)) return null;
@@ -39,40 +39,35 @@ public class CommentGutterIconProvider implements LineMarkerProvider {
         Project project = method.getProject();
         PluginProjectService service = project.getService(PluginProjectService.class);
 
-        String key = MethodRecordUtil.buildMethodKey(method);
-        if (key.isBlank()) return null;
+        MethodStatus status = service.preCheckChange(method);
 
-        MethodRecord record = MethodHistoryRepositoryImpl.getInstance().findByKey(key);
-        if (record == null) return null;
+        if (MethodStatus.UNCHANGED.equals(status)) return null;
 
-        MethodStatus status = record.getStatus();
-        boolean needsAttention = false;
-        boolean isGenerate = false;
+        String tooltip;
+        String message;
+        String yesText;
 
-        if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(status)) {
-            // 始终显示：NEW_METHOD_WITHOUT_COMMENT 必须手动生成
-            needsAttention = true;
-            isGenerate = true;
-        } else if (!service.isAutoUpdateEnabled()) {
-            // 自动更新关闭时：检测需要手动更新的方法
-            if (MethodStatus.METHOD_CHANGED.equals(status)) {
-                needsAttention = true;
-            } else if (MethodStatus.UNCHANGED.equals(status)
-                    || MethodStatus.NEW_METHOD_WITH_COMMENT.equals(status)
-                    || MethodStatus.COMMENT_CHANGED.equals(status)) {
-                // 漂移检测：当前方法体与记录中的暂存方法体不一致
-                String currentMethod = extractMethodBody(method);
-                String processed = TextProcessUtil.processMethod(currentMethod);
-                if (!Objects.equals(processed, record.getStagedMethod())) {
-                    needsAttention = true;
-                }
-            }
+        if (MethodStatus.COMMENT_CHANGED.equals(status)) {
+            tooltip = "检测到注释变更，点击更新";
+            message = "检测到该方法的注释与历史版本不一致，是否确定以当前注释为准？";
+            yesText = "确定";
+        } else if (MethodStatus.METHOD_CHANGED.equals(status)) {
+            tooltip = "检测到方法体变更，点击更新注释";
+            message = "检测到该方法的实现发生变化，是否更新注释？";
+            yesText = "更新";
+        } else if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(status)) {
+            tooltip = "检测到新方法且缺少注释，点击生成注释";
+            message = "检测到新方法且缺少注释，是否为该方法生成注释？";
+            yesText = "生成";
+        } else if (MethodStatus.NEW_METHOD_WITH_COMMENT.equals(status)) {
+            tooltip = "检测到新方法，点击更新";
+            message = "检测到新方法，是否确定将该方法加入注释一致性维护管理？";
+            yesText = "确定";
+        } else {
+            tooltip = "";
+            message = "";
+            yesText = "";
         }
-
-        if (!needsAttention) return null;
-
-        final boolean generateMode = isGenerate;
-        String tooltip = generateMode ? "生成方法注释" : "更新方法注释";
 
         return new LineMarkerInfo<>(
                 element,
@@ -81,15 +76,12 @@ public class CommentGutterIconProvider implements LineMarkerProvider {
                 e -> tooltip,
                 (mouseEvent, el) -> {
                     PsiMethod m = (PsiMethod) el.getParent();
-                    String title = "注释操作";
-                    String message = generateMode ? "是否为该方法生成注释？" : "是否更新该方法的注释？";
-                    String yesText = generateMode ? "生成" : "更新";
 
-                    int result = Messages.showYesNoDialog(project, message, title, yesText, "取消",
+                    int result = Messages.showYesNoDialog(project, message, "注释一致性维护管理", yesText, "取消",
                             Messages.getQuestionIcon());
                     if (result == Messages.YES) {
                         PluginProjectService svc = project.getService(PluginProjectService.class);
-                        if (generateMode) {
+                        if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(status)) {
                             svc.generateComment(m);
                         } else {
                             svc.refreshMethodHistory(m);
@@ -99,19 +91,5 @@ public class CommentGutterIconProvider implements LineMarkerProvider {
                 GutterIconRenderer.Alignment.LEFT,
                 () -> tooltip
         );
-    }
-
-    /**
-     * 提取方法体文本（去除前导注释和空白）。
-     */
-    private static String extractMethodBody(PsiMethod method) {
-        PsiElement child = method.getFirstChild();
-        while (child instanceof PsiComment || child instanceof PsiWhiteSpace) {
-            child = child.getNextSibling();
-        }
-        if (child == null) return "";
-        int start = child.getTextRange().getStartOffset();
-        int end = method.getTextRange().getEndOffset();
-        return method.getContainingFile().getText().substring(start, end).trim();
     }
 }
