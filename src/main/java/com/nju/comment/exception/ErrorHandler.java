@@ -7,11 +7,10 @@ import com.intellij.notification.NotificationType;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectManager;
-import com.nju.comment.service.AuthManager;
 import com.nju.comment.service.PluginProjectService;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * 插件端统一错误处理器。
@@ -40,7 +39,7 @@ public final class ErrorHandler {
      * @param retryAction 可重试时的重试动作，为 null 则不提供重试
      * @param project     触发请求的项目，用于定向登出（可为 null）
      */
-    public static void handle(BackendException ex, Runnable retryAction, Project project) {
+    public static void handle(BackendException ex, Runnable retryAction, Project project, @Nullable String methodKey) {
         ErrorCode code = ex.getErrorCode();
         String msg = ex.getMessage();
 
@@ -53,7 +52,7 @@ public final class ErrorHandler {
         // 2. 按错误码决定用户通知策略
         switch (code) {
             case LLM_TIMEOUT -> notifyWithRetry(
-                    "LLM 调用超时",
+                    methodKey,
                     "LLM 调用超时，请稍后重试。",
                     retryAction, project);
 
@@ -121,18 +120,16 @@ public final class ErrorHandler {
      * 带项目上下文的便捷入口（无重试）
      */
     public static void handle(BackendException ex, Project project) {
-        handle(ex, null, project);
+        handle(ex, null, project, null);
     }
 
     // ========================== 通知工具方法 ==========================
 
     private static void notify(String title, String content, NotificationType type, Project project) {
-        ApplicationManager.getApplication().invokeLater(() -> {
-            NotificationGroupManager.getInstance()
-                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
-                    .createNotification(title, content, type)
-                    .notify(project);
-        });
+        ApplicationManager.getApplication().invokeLater(() -> NotificationGroupManager.getInstance()
+                .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                .createNotification(title, content, type)
+                .notify(project));
     }
 
     private static void notifyWithRetry(String title, String content, Runnable retryAction, Project project) {
@@ -155,10 +152,5 @@ public final class ErrorHandler {
 
             notification.notify(project);
         });
-    }
-
-    private static Project getOpenProject() {
-        Project[] projects = ProjectManager.getInstance().getOpenProjects();
-        return projects.length > 0 ? projects[0] : null;
     }
 }

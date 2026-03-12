@@ -31,7 +31,6 @@ import java.util.concurrent.*;
 public final class PluginProjectService implements Disposable {
 
     private static final String DEFAULT_BASE_URL = Constant.CLIENT_DEFAULT_BASE_URL;
-    private static final long GUTTER_REFRESH_DEBOUNCE_MS = 500;
 
     private final Project project;
     private final MethodHistoryRepositoryImpl history;
@@ -95,7 +94,11 @@ public final class PluginProjectService implements Disposable {
     /** 必须在持有 scheduleLock 时调用 */
     private void ensureSchedulerLocked() {
         if (autoScheduler == null || autoScheduler.isShutdown()) {
-            autoScheduler = Executors.newSingleThreadScheduledExecutor();
+            autoScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "plugin-auto-scheduler");
+                t.setDaemon(true);
+                return t;
+            });
         }
     }
 
@@ -171,7 +174,7 @@ public final class PluginProjectService implements Disposable {
                         if (file.isValid()) {
                             DaemonCodeAnalyzer.getInstance(project).restart(file);
                         }
-                    }), GUTTER_REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+                    }), Constant.GUTTER_REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
             pendingRefreshes.put(path, task);
         }
     }
@@ -311,6 +314,8 @@ public final class PluginProjectService implements Disposable {
                 autoScheduler = null;
             }
         }
-        CommentGeneratorClient.shutdown();
+        // 取消所有待执行的 gutter 去抖任务
+        pendingRefreshes.values().forEach(f -> f.cancel(false));
+        pendingRefreshes.clear();
     }
 }

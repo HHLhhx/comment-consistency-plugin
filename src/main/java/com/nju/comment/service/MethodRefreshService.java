@@ -11,6 +11,7 @@ import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.nju.comment.client.global.CommentGeneratorClient;
+import com.nju.comment.constant.Constant;
 import com.nju.comment.dto.request.CommentReqTag;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.pojo.GenerateOptions;
@@ -37,13 +38,11 @@ import java.util.function.Consumer;
 @Slf4j
 public class MethodRefreshService {
 
-    private static final int MAX_CONCURRENT_REFRESH = 8;
-
     private final Project project;
     private final MethodHistoryManager historyManager;
     private final BooleanSupplier autoUpdateCheck;
     private final Consumer<PsiFile> gutterRefreshRequester;
-    private final Semaphore refreshLimiter = new Semaphore(MAX_CONCURRENT_REFRESH);
+    private final Semaphore refreshLimiter = new Semaphore(Constant.MAX_CONCURRENT_REFRESH);
 
     public MethodRefreshService(Project project,
                                 MethodHistoryManager historyManager,
@@ -194,7 +193,7 @@ public class MethodRefreshService {
         log.info("刷新文件方法历史记录，path: {}", file.getPath());
         List<PsiMethod> methods = ReadAction.compute(() -> {
             PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
-            if (psiFile == null) return List.<PsiMethod>of();
+            if (psiFile == null) return List.of();
             return new ArrayList<>(PsiTreeUtil.collectElementsOfType(psiFile, PsiMethod.class));
         });
         log.info("文件中找到方法数量：{}", methods.size());

@@ -17,6 +17,7 @@ import com.nju.comment.client.PluginCommentClient;
 import com.nju.comment.exception.BackendException;
 import com.nju.comment.exception.ErrorHandler;
 import com.nju.comment.service.AuthManager;
+import com.nju.comment.util.RequestIdGenerator;
 import com.nju.comment.util.TextProcessUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +26,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 
@@ -134,7 +134,7 @@ public class CommentGeneratorClient {
         // 构建请求并发送（在后台线程中处理）
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                String requestId = UUID.randomUUID().toString();
+                String requestId = RequestIdGenerator.generate();
                 log.info("开始生成注释, requestId={}, methodKey={}", requestId, methodKey);
                 CommentRequest req = CommentRequest.builder()
                         .oldMethod(data.getOldMethod())
@@ -168,7 +168,7 @@ public class CommentGeneratorClient {
                             Runnable retryAction = be.getErrorCode().isRetryable()
                                     ? () -> generateCommentAsync(methodKey, data, options, callback, project)
                                     : null;
-                            ErrorHandler.handle(be, retryAction, project);
+                            ErrorHandler.handle(be, retryAction, project, methodKey);
                         } else {
                             log.error("注释生成异常, requestId={}", requestId, t);
                         }
@@ -375,6 +375,9 @@ public class CommentGeneratorClient {
      */
     public static void shutdown() {
         synchronized (LOCK) {
+            // 取消所有在途请求
+            IN_FLIGHT_BY_METHOD.keySet().forEach(CommentGeneratorClient::cancelForMethod);
+            IN_FLIGHT_BY_METHOD.clear();
             if (client != null) {
                 log.info("关闭 CommentGeneratorClient");
                 client.shutdown();

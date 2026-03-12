@@ -35,7 +35,11 @@ public class MainPanel extends JPanel implements Disposable {
     private final ComboBox<String> modelCombo;
     private final JPanel cardsListPanel;
 
-    private final ScheduledExecutorService uiScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService uiScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "main-panel-ui-poller");
+        t.setDaemon(true);
+        return t;
+    });
     private Set<String> lastSeenSignatures = null;
     private boolean suppressModelAction = false;
 

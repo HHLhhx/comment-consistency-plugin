@@ -31,4 +31,10 @@ public final class Constant {
 
     // LLM settings
     public static final int LLM_RESPONSE_TIMEOUT_S = 30;
+
+    // Max concurrent refresh methods
+    public static final int MAX_CONCURRENT_REFRESH = 8;
+
+    // Gutter refresh debounce time
+    public static final long GUTTER_REFRESH_DEBOUNCE_MS = 500;
 }
