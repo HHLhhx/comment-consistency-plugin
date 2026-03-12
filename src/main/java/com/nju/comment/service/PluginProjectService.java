@@ -25,6 +25,7 @@ import com.nju.comment.util.MethodRecordUtil;
 import com.nju.comment.pojo.MethodRecord;
 import com.nju.comment.util.MethodValidationUtil;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
@@ -60,6 +61,13 @@ public final class PluginProjectService implements Disposable {
     private ScheduledFuture<?> autoUpdateTask;
     private ScheduledFuture<?> autoCleanTask;
 
+    /** UI 层注册的强制登出回调（切换到登录界面）
+     * -- SETTER --
+     *  注册强制登出回调（由 UI 层设置，用于切回登录界面）。
+     */
+    @Setter
+    private volatile Runnable onForceLogoutCallback;
+
     public PluginProjectService(Project project) {
         this.project = project;
         this.repository = new MethodHistoryRepositoryImpl();
@@ -92,10 +100,11 @@ public final class PluginProjectService implements Disposable {
             ensureScheduler();
             if (autoCleanTask == null || autoCleanTask.isCancelled()) {
                 autoCleanTask = autoScheduler.scheduleWithFixedDelay(
-                        () -> DumbService.getInstance(project).runWhenSmart(() -> {
-                            List<PsiMethod> methods = collectAllMethods(project);
-                            methodHistoryManager.clearDeletedMethodHistories(methods);
-                        }),
+                        () -> DumbService.getInstance(project).runWhenSmart(() ->
+                                ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                                    List<PsiMethod> methods = collectAllMethods(project);
+                                    methodHistoryManager.clearDeletedMethodHistories(methods);
+                                })),
                         Constant.AUTO_DELETE_INITIAL_DELAY_MS,
                         Constant.AUTO_DELETE_DELAY_MS, TimeUnit.MILLISECONDS);
             }
@@ -215,6 +224,18 @@ public final class PluginProjectService implements Disposable {
         repository.clear();
         userSettings = null;
         log.info("用户已登出，已清理资源");
+    }
+
+    /**
+     * 服务端判定凭证失效时调用：执行登出 + 切换到登录界面。
+     */
+    public void forceLogout() {
+        onUserLogout();
+        AuthManager.clearAuth();
+        Runnable cb = onForceLogoutCallback;
+        if (cb != null) {
+            ApplicationManager.getApplication().invokeLater(cb);
+        }
     }
 
     /**

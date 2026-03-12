@@ -190,7 +190,7 @@ public class  SettingsPanel extends JPanel {
                     }
                 }))
                 .exceptionally(ex -> {
-                    log.warn("查询 API Key 失败", ex);
+                    log.warn("查询 API Key 失败");
                     ApplicationManager.getApplication().invokeLater(() -> {
                         currentKeyLabel.setText("查询失败");
                         currentKeyLabel.setForeground(JBColor.RED);

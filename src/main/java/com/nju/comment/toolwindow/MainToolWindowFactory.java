@@ -28,6 +28,9 @@ public class MainToolWindowFactory implements ToolWindowFactory {
                 ApplicationManager.getApplication().invokeLater(() -> {
                     JPanel root = new JPanel(new BorderLayout());
 
+                    // 注册强制登出回调，用于服务端凭证失效时自动切回登录界面
+                    service.setOnForceLogoutCallback(() -> showLogin(root, project, toolWindow));
+
                     if (AuthManager.isLoggedIn()) {
                         showMain(root, project, toolWindow);
                         DumbService.getInstance(project).runWhenSmart(service::refreshAllMethodHistories);
