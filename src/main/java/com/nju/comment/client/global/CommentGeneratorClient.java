@@ -118,16 +118,34 @@ public class CommentGeneratorClient {
 
         // 计算内容指纹
         String fingerprint = contentFingerprint(data);
+
+        // 原子去重 & 占位注册：compute() 对同一 key 加锁，杜绝 check-then-act 竞态
         if (methodKey != null && !methodKey.isBlank()) {
-            InFlightRecord existing = IN_FLIGHT_BY_METHOD.get(methodKey);
-            if (existing != null) {
-                if (Objects.equals(existing.getContentFingerprint(), fingerprint)) {
-                    log.info("方法 {} 已有相同内容的在途请求，跳过本次", methodKey);
-                    callback.accept(null);
-                    return;
+            InFlightRecord[] oldRecord = {null};
+            boolean[] skipped = {false};
+
+            IN_FLIGHT_BY_METHOD.compute(methodKey, (key, existing) -> {
+                if (existing != null && Objects.equals(existing.getContentFingerprint(), fingerprint)) {
+                    skipped[0] = true;
+                    return existing; // 内容相同，保留在途，跳过本次
                 }
+                if (existing != null) {
+                    oldRecord[0] = existing; // 内容变更，暂存旧记录待取消
+                }
+                // 注册占位（requestId/future 在池线程中填充）
+                return new InFlightRecord(null, null, fingerprint);
+            });
+
+            if (skipped[0]) {
+                log.info("方法 {} 已有相同内容的在途请求，跳过本次", methodKey);
+                callback.accept(null);
+                return;
+            }
+
+            // 在 compute 外取消旧记录（此时 map 中已是新占位，不会误取消）
+            if (oldRecord[0] != null) {
                 log.info("方法 {} 请求内容已变更，取消在途并发送新请求", methodKey);
-                cancelForMethod(methodKey);
+                cancelRecord(oldRecord[0], methodKey);
             }
         }
 
@@ -148,10 +166,29 @@ public class CommentGeneratorClient {
 
                 CompletableFuture<CommentResponse> future = client.generateComment(req);
 
-                // 记录在途请求
+                // 原子升级：占位 → 真实记录（仅当占位仍属于本次调用时才升级）
                 if (methodKey != null && !methodKey.isBlank()) {
-                    IN_FLIGHT_BY_METHOD.put(methodKey, new InFlightRecord(requestId, future, fingerprint));
-                    future.whenComplete((r, ex) -> IN_FLIGHT_BY_METHOD.remove(methodKey));
+                    InFlightRecord upgraded = IN_FLIGHT_BY_METHOD.computeIfPresent(methodKey,
+                            (key, current) -> {
+                                if (current.getRequestId() == null
+                                        && Objects.equals(current.getContentFingerprint(), fingerprint)) {
+                                    return new InFlightRecord(requestId, future, fingerprint);
+                                }
+                                return current; // 已被更新的调用取代，保留新占位
+                            });
+
+                    if (upgraded == null || !Objects.equals(upgraded.getRequestId(), requestId)) {
+                        // 占位已被取代或移除，取消本次请求
+                        log.info("方法 {} 的占位已被取代，放弃本次请求, requestId={}", methodKey, requestId);
+                        future.cancel(true);
+                        if (client != null) client.cancelRequest(requestId);
+                        callback.accept(null);
+                        return;
+                    }
+
+                    // 完成后原子清理（仅移除自己的记录，不影响后续调用的记录）
+                    future.whenComplete((r, ex) -> IN_FLIGHT_BY_METHOD.computeIfPresent(methodKey,
+                            (key, cur) -> Objects.equals(cur.getRequestId(), requestId) ? null : cur));
                 }
 
                 // 在后台线程上等待结果，不阻塞UI线程
@@ -208,18 +245,27 @@ public class CommentGeneratorClient {
     }
 
     /**
-     * 取消指定方法上正在进行的生成请求（并通知后端取消）
-     *
-     * @param methodKey 方法唯一键
+     * 取消一条在途记录（通知后端 + 取消 Future），不操作 map。
      */
     public static void cancelForMethod(String methodKey) {
         if (methodKey == null || methodKey.isBlank()) return;
         InFlightRecord record = IN_FLIGHT_BY_METHOD.remove(methodKey);
+        cancelRecord(record, methodKey);
+    }
+
+    /**
+     * 取消指定方法上正在进行的生成请求（并通知后端取消）
+     *
+     * @param methodKey 方法唯一键
+     */
+    private static void cancelRecord(InFlightRecord record, String methodKey) {
         if (record == null) return;
-        if (client != null) {
+        if (client != null && record.getRequestId() != null) {
             client.cancelRequest(record.getRequestId());
         }
-        record.getFuture().cancel(true);
+        if (record.getFuture() != null) {
+            record.getFuture().cancel(true);
+        }
         log.info("已取消方法 {} 的在途注释生成请求, requestId={}", methodKey, record.getRequestId());
     }
 
