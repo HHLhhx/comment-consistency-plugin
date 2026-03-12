@@ -7,7 +7,7 @@ import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
-import com.nju.comment.client.global.AuthManager;
+import com.nju.comment.service.AuthManager;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.service.PluginProjectService;
 import lombok.extern.slf4j.Slf4j;

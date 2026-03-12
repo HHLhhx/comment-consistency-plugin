@@ -8,7 +8,7 @@ import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.util.ui.JBUI;
-import com.nju.comment.client.global.AuthManager;
+import com.nju.comment.service.AuthManager;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.pojo.MethodRecord;

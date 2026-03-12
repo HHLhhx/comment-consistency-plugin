@@ -12,7 +12,7 @@ import com.nju.comment.dto.request.RegisterRequest;
 import com.nju.comment.dto.response.ApiResponse;
 import com.nju.comment.dto.response.AuthResponse;
 import com.nju.comment.dto.response.CommentResponse;
-import com.nju.comment.client.global.AuthManager;
+import com.nju.comment.service.AuthManager;
 import com.nju.comment.exception.BackendException;
 import com.nju.comment.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;

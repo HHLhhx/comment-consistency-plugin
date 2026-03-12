@@ -5,6 +5,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.components.Service;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -12,7 +13,6 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.nju.comment.client.global.AuthManager;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.pojo.GenerateOptions;
@@ -45,7 +45,9 @@ public final class PluginProjectService implements Disposable {
 
     @Getter
     private final MethodHistoryManager methodHistoryManager;
-    /** 去抖：每个文件对应一个延迟 restart 任务，新变更重置计时 */
+    /**
+     * 去抖：每个文件对应一个延迟 restart 任务，新变更重置计时
+     */
     private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingRefreshes = new ConcurrentHashMap<>();
 
     @Getter
@@ -90,10 +92,10 @@ public final class PluginProjectService implements Disposable {
             ensureScheduler();
             if (autoCleanTask == null || autoCleanTask.isCancelled()) {
                 autoCleanTask = autoScheduler.scheduleWithFixedDelay(
-                        () -> {
+                        () -> DumbService.getInstance(project).runWhenSmart(() -> {
                             List<PsiMethod> methods = collectAllMethods(project);
                             methodHistoryManager.clearDeletedMethodHistories(methods);
-                        },
+                        }),
                         Constant.AUTO_DELETE_INITIAL_DELAY_MS,
                         Constant.AUTO_DELETE_DELAY_MS, TimeUnit.MILLISECONDS);
             }
@@ -229,7 +231,8 @@ public final class PluginProjectService implements Disposable {
      * 刷新项目中所有方法历史记录
      */
     public void refreshAllMethodHistories() {
-        ApplicationManager.getApplication().executeOnPooledThread(this::doRefreshAllMethodHistories);
+        DumbService.getInstance(project).runWhenSmart(() ->
+                ApplicationManager.getApplication().executeOnPooledThread(this::doRefreshAllMethodHistories));
     }
 
     /**
@@ -273,7 +276,8 @@ public final class PluginProjectService implements Disposable {
      * @param file 目标文件
      */
     public void refreshFileMethodHistories(VirtualFile file) {
-        ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshFileMethodHistories(file));
+        DumbService.getInstance(project).runWhenSmart(() ->
+                ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshFileMethodHistories(file)));
     }
 
     /**
@@ -310,7 +314,8 @@ public final class PluginProjectService implements Disposable {
      * @param method 目标方法
      */
     public void refreshMethodHistory(PsiMethod method) {
-        ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method));
+        DumbService.getInstance(project).runWhenSmart(() ->
+                ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method)));
     }
 
     /**

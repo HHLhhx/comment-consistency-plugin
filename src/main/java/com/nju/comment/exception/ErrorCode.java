@@ -1,6 +1,7 @@
 package com.nju.comment.exception;
 
 import lombok.Getter;
+import org.apache.http.HttpStatus;
 
 import java.util.Map;
 import java.util.function.Function;
@@ -33,6 +34,7 @@ public enum ErrorCode {
     AUTH_USERNAME_EXISTS(7002, "用户名已存在", ErrorLevel.WARN, false),
     AUTH_TOKEN_EXPIRED(7003, "登录已过期，请重新登录", ErrorLevel.WARN, false),
     AUTH_TOKEN_INVALID(7004, "登录凭证无效，请重新登录", ErrorLevel.WARN, false),
+    AUTH_NOT_LOGGED_IN(7005, "未登录，请先登录", ErrorLevel.WARN, false),
     AUTH_TOKEN_BLACKLISTED(7008, "令牌已失效，请重新登录", ErrorLevel.WARN, false),
     AUTH_PHONE_EXISTS(7009, "手机号已被注册", ErrorLevel.WARN, false),
 

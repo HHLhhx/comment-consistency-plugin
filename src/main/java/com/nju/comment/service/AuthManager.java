@@ -1,4 +1,4 @@
-package com.nju.comment.client.global;
+package com.nju.comment.service;
 
 import com.intellij.ide.util.PropertiesComponent;
 import lombok.Getter;

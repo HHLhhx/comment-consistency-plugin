@@ -15,6 +15,7 @@ import com.nju.comment.client.CommentClient;
 import com.nju.comment.client.PluginCommentClient;
 import com.nju.comment.exception.BackendException;
 import com.nju.comment.exception.ErrorHandler;
+import com.nju.comment.service.AuthManager;
 import com.nju.comment.util.TextProcessUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -291,7 +292,16 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<AuthResponse> login(String username, String password) {
         initCheck();
-        return client.login(new LoginRequest(username, password));
+        return client.login(new LoginRequest(username, password)).whenComplete((r, ex) -> {
+            if (ex != null) {
+                Throwable cause = ex.getCause();
+                if (cause instanceof BackendException be) {
+                    ErrorHandler.handle(be);
+                } else {
+                    log.error("登录请求失败", ex);
+                }
+            }
+        });
     }
 
     /**
@@ -299,7 +309,16 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<AuthResponse> register(String username, String password, String phone) {
         initCheck();
-        return client.register(new RegisterRequest(username, password, phone));
+        return client.register(new RegisterRequest(username, password, phone)).whenComplete((r, ex) -> {
+            if (ex != null) {
+                Throwable cause = ex.getCause();
+                if (cause instanceof BackendException be) {
+                    ErrorHandler.handle(be);
+                } else {
+                    log.error("注册请求失败", ex);
+                }
+            }
+        });
     }
 
     /**
@@ -322,7 +341,16 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<Void> saveApiKey(String apiKey) {
         initCheck();
-        return client.saveApiKey(new ApiKeyRequest(apiKey));
+        return client.saveApiKey(new ApiKeyRequest(apiKey)).whenComplete((r, ex) -> {
+            if (ex != null) {
+                Throwable cause = ex.getCause();
+                if (cause instanceof BackendException be) {
+                    ErrorHandler.handle(be);
+                } else {
+                    log.error("保存 API Key 请求失败", ex);
+                }
+            }
+        });
     }
 
     /**
@@ -330,7 +358,16 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<String> checkApiKey() {
         initCheck();
-        return client.checkApiKey();
+        return client.checkApiKey().whenComplete((r, ex) -> {
+            if (ex != null) {
+                Throwable cause = ex.getCause();
+                if (cause instanceof BackendException be) {
+                    ErrorHandler.handle(be);
+                } else {
+                    log.error("查询 API Key 请求失败", ex);
+                }
+            }
+        });
     }
 
     /**
@@ -338,7 +375,16 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<Void> deleteApiKey() {
         initCheck();
-        return client.deleteApiKey();
+        return client.deleteApiKey().whenComplete((r, ex) -> {
+            if (ex != null) {
+                Throwable cause = ex.getCause();
+                if (cause instanceof BackendException be) {
+                    ErrorHandler.handle(be);
+                } else {
+                    log.error("删除 API Key 请求失败", ex);
+                }
+            }
+        });
     }
 
     /**
