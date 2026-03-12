@@ -64,7 +64,7 @@ public final class PluginProjectService implements Disposable {
     public PluginProjectService(Project project) {
         this.project = project;
         this.history = new MethodHistoryRepositoryImpl();
-        this.methodHistoryManager = new MethodHistoryManager(history);
+        this.methodHistoryManager = new MethodHistoryManager(history, project);
         this.methodRefreshService = new MethodRefreshService(
                 project, methodHistoryManager,
                 this::isAutoUpdateEnabled,

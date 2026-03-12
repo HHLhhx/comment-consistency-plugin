@@ -8,6 +8,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiElementFactory;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.javadoc.PsiDocComment;
@@ -271,6 +272,18 @@ public class MethodDiffCard extends JPanel {
             record.setStatus(MethodStatus.UNCHANGED);
         }
         historyManager.save(record);
+        requestGutterRefresh();
+    }
+
+    /**
+     * 通知 gutter 图标刷新，确保状态变更后图标即时更新。
+     */
+    private void requestGutterRefresh() {
+        SmartPsiElementPointer<PsiMethod> ptr = record.getPointer();
+        if (ptr == null) return;
+        PsiFile psiFile = ptr.getContainingFile();
+        if (psiFile == null || !psiFile.isValid()) return;
+        project.getService(PluginProjectService.class).requestGutterIconRefresh(psiFile);
     }
 
     // ==================== LCS-based diff ====================

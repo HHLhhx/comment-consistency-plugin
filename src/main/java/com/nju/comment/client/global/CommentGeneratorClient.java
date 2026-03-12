@@ -54,6 +54,7 @@ public class CommentGeneratorClient {
     private static final Duration LLM_TIMEOUT = Duration.ofSeconds(Constant.LLM_RESPONSE_TIMEOUT_S);
 
     // 方法维度的在途请求记录，用内容指纹区分「重复触发」与「修改后再触发」
+    // key 格式: projectLocationHash + ":" + methodKey，保证跨项目不冲突
     private static final Map<String, InFlightRecord> IN_FLIGHT_BY_METHOD = new ConcurrentHashMap<>();
     private static final String FINGERPRINT_DELIM = "\u0001";
 
@@ -116,15 +117,18 @@ public class CommentGeneratorClient {
         // 初始化检查
         initCheck();
 
+        // 将 methodKey 作用域化，避免跨项目同名方法冲突
+        String mapKey = scopedKey(methodKey, project);
+
         // 计算内容指纹
         String fingerprint = contentFingerprint(data);
 
         // 原子去重 & 占位注册：compute() 对同一 key 加锁，杜绝 check-then-act 竞态
-        if (methodKey != null && !methodKey.isBlank()) {
+        if (mapKey != null && !mapKey.isBlank()) {
             InFlightRecord[] oldRecord = {null};
             boolean[] skipped = {false};
 
-            IN_FLIGHT_BY_METHOD.compute(methodKey, (key, existing) -> {
+            IN_FLIGHT_BY_METHOD.compute(mapKey, (key, existing) -> {
                 if (existing != null && Objects.equals(existing.getContentFingerprint(), fingerprint)) {
                     skipped[0] = true;
                     return existing; // 内容相同，保留在途，跳过本次
@@ -145,7 +149,7 @@ public class CommentGeneratorClient {
             // 在 compute 外取消旧记录（此时 map 中已是新占位，不会误取消）
             if (oldRecord[0] != null) {
                 log.info("方法 {} 请求内容已变更，取消在途并发送新请求", methodKey);
-                cancelRecord(oldRecord[0], methodKey);
+                cancelRecord(oldRecord[0], mapKey);
             }
         }
 
@@ -167,8 +171,8 @@ public class CommentGeneratorClient {
                 CompletableFuture<CommentResponse> future = client.generateComment(req);
 
                 // 原子升级：占位 → 真实记录（仅当占位仍属于本次调用时才升级）
-                if (methodKey != null && !methodKey.isBlank()) {
-                    InFlightRecord upgraded = IN_FLIGHT_BY_METHOD.computeIfPresent(methodKey,
+                if (mapKey != null && !mapKey.isBlank()) {
+                    InFlightRecord upgraded = IN_FLIGHT_BY_METHOD.computeIfPresent(mapKey,
                             (key, current) -> {
                                 if (current.getRequestId() == null
                                         && Objects.equals(current.getContentFingerprint(), fingerprint)) {
@@ -179,7 +183,7 @@ public class CommentGeneratorClient {
 
                     if (upgraded == null || !Objects.equals(upgraded.getRequestId(), requestId)) {
                         // 占位已被取代或移除，取消本次请求
-                        log.info("方法 {} 的占位已被取代，放弃本次请求, requestId={}", methodKey, requestId);
+                        log.info("方法 {} 的占位已被取代，放弃本次请求, requestId={}", mapKey, requestId);
                         future.cancel(true);
                         if (client != null) client.cancelRequest(requestId);
                         callback.accept(null);
@@ -187,7 +191,7 @@ public class CommentGeneratorClient {
                     }
 
                     // 完成后原子清理（仅移除自己的记录，不影响后续调用的记录）
-                    future.whenComplete((r, ex) -> IN_FLIGHT_BY_METHOD.computeIfPresent(methodKey,
+                    future.whenComplete((r, ex) -> IN_FLIGHT_BY_METHOD.computeIfPresent(mapKey,
                             (key, cur) -> Objects.equals(cur.getRequestId(), requestId) ? null : cur));
                 }
 
@@ -245,12 +249,22 @@ public class CommentGeneratorClient {
     }
 
     /**
-     * 取消一条在途记录（通知后端 + 取消 Future），不操作 map。
+     * 取消指定方法的在途请求（项目作用域）
      */
-    public static void cancelForMethod(String methodKey) {
-        if (methodKey == null || methodKey.isBlank()) return;
-        InFlightRecord record = IN_FLIGHT_BY_METHOD.remove(methodKey);
-        cancelRecord(record, methodKey);
+    public static void cancelForMethod(String methodKey, Project project) {
+        String mapKey = scopedKey(methodKey, project);
+        if (mapKey == null || mapKey.isBlank()) return;
+        InFlightRecord record = IN_FLIGHT_BY_METHOD.remove(mapKey);
+        cancelRecord(record, mapKey);
+    }
+
+    /**
+     * 按 map 中的原始 key 取消（用于 shutdown 遍历）
+     */
+    private static void cancelByMapKey(String mapKey) {
+        if (mapKey == null || mapKey.isBlank()) return;
+        InFlightRecord record = IN_FLIGHT_BY_METHOD.remove(mapKey);
+        cancelRecord(record, mapKey);
     }
 
     /**
@@ -267,6 +281,18 @@ public class CommentGeneratorClient {
             record.getFuture().cancel(true);
         }
         log.info("已取消方法 {} 的在途注释生成请求, requestId={}", methodKey, record.getRequestId());
+    }
+
+    /**
+     * 生成项目作用域的 map key，避免跨项目同名方法在全局 map 中冲突。
+     * 格式: {@code projectLocationHash:methodKey}
+     */
+    private static String scopedKey(String methodKey, Project project) {
+        if (methodKey == null || methodKey.isBlank()) return null;
+        String prefix = (project != null && !project.isDisposed())
+                ? project.getLocationHash()
+                : "_";
+        return prefix + ":" + methodKey;
     }
 
     /**
@@ -422,7 +448,7 @@ public class CommentGeneratorClient {
     public static void shutdown() {
         synchronized (LOCK) {
             // 取消所有在途请求
-            IN_FLIGHT_BY_METHOD.keySet().forEach(CommentGeneratorClient::cancelForMethod);
+            IN_FLIGHT_BY_METHOD.keySet().forEach(CommentGeneratorClient::cancelByMapKey);
             IN_FLIGHT_BY_METHOD.clear();
             if (client != null) {
                 log.info("关闭 CommentGeneratorClient");

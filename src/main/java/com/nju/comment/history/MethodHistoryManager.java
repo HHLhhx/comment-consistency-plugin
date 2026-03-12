@@ -3,6 +3,7 @@ package com.nju.comment.history;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.javadoc.PsiDocComment;
+import com.intellij.openapi.project.Project;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.history.state.MethodStateContext;
 import com.nju.comment.history.state.MethodStateMachine;
@@ -18,7 +19,7 @@ import java.util.List;
 import java.util.function.BiConsumer;
 
 @Slf4j
-public record MethodHistoryManager(MethodHistoryRepository repository) {
+public record MethodHistoryManager(MethodHistoryRepository repository, Project project) {
 
     private static final MethodStateMachine STATE_MACHINE = new MethodStateMachine();
 
@@ -72,7 +73,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository) {
                             commentGeneratorAsync.accept(methodContext, status)));
         } else if (result.requiresCancel()) {
             // 取消在途注释生成请求
-            CommentGeneratorClient.cancelForMethod(key);
+            CommentGeneratorClient.cancelForMethod(key, project);
         }
 
         // 自动更新关闭时，需要更新至稳态
