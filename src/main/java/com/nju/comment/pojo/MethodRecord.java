@@ -12,18 +12,18 @@ import java.time.Instant;
 public class MethodRecord {
     String key;
     transient SmartPsiElementPointer<PsiMethod> pointer;
-    MethodStatus status;
+    volatile MethodStatus status;
 
-    String oldMethod;
-    String oldComment;
-    Instant updatedAt;
+    volatile String oldMethod;
+    volatile String oldComment;
+    volatile Instant updatedAt;
 
     String filePath;
     String qualifiedNameContainClass;
     String signature;
 
-    String stagedMethod;
-    String stagedComment;
+    volatile String stagedMethod;
+    volatile String stagedComment;
 
     public MethodRecord(String qualifiedNameContainClass, String signature, String oldMethod, String oldComment) {
         this.qualifiedNameContainClass = qualifiedNameContainClass;

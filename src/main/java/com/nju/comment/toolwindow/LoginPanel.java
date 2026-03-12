@@ -1,7 +1,6 @@
 package com.nju.comment.toolwindow;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.project.Project;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBPasswordField;
@@ -9,7 +8,6 @@ import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.nju.comment.service.AuthManager;
 import com.nju.comment.client.global.CommentGeneratorClient;
-import com.nju.comment.service.PluginProjectService;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
@@ -29,8 +27,6 @@ public class LoginPanel extends JPanel {
 
     private static final Color BLUE_BTN_BG = new JBColor(new Color(3, 102, 214), new Color(47, 111, 209));
 
-    private final Project project;
-
     private final CardLayout cardLayout;
     private final JPanel cardPanel;
     private final Runnable onLoginSuccess;
@@ -49,8 +45,7 @@ public class LoginPanel extends JPanel {
     private JButton regBackBtn;
     private JBLabel regStatus;
 
-    public LoginPanel(Project project, Runnable onLoginSuccess) {
-        this.project = project;
+    public LoginPanel(Runnable onLoginSuccess) {
         this.onLoginSuccess = onLoginSuccess;
         setLayout(new GridBagLayout());
 
@@ -189,8 +184,6 @@ public class LoginPanel extends JPanel {
                 .thenAccept(resp -> {
                     AuthManager.saveAuth(resp.getToken(), user);
                     ApplicationManager.getApplication().invokeLater(onLoginSuccess);
-                    PluginProjectService service = project.getService(PluginProjectService.class);
-                    service.setAutoCleanEnabled(true);
                 })
                 .exceptionally(ex -> {
                     String msg = extractError(ex);

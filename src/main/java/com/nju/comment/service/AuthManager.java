@@ -14,6 +14,7 @@ public final class AuthManager {
 
     private static final String TOKEN_KEY = "comment.consistency.auth.token";
     private static final String USERNAME_KEY = "comment.consistency.auth.username";
+    private static final Object AUTH_LOCK = new Object();
 
     @Getter
     private static volatile String token;
@@ -28,8 +29,10 @@ public final class AuthManager {
      */
     public static void init() {
         PropertiesComponent props = PropertiesComponent.getInstance();
-        token = props.getValue(TOKEN_KEY);
-        username = props.getValue(USERNAME_KEY);
+        synchronized (AUTH_LOCK) {
+            token = props.getValue(TOKEN_KEY);
+            username = props.getValue(USERNAME_KEY);
+        }
         if (token != null) {
             log.info("已恢复登录状态: username={}", username);
         }
@@ -39,11 +42,13 @@ public final class AuthManager {
      * 保存登录凭证
      */
     public static void saveAuth(String newToken, String newUsername) {
-        token = newToken;
-        username = newUsername;
-        PropertiesComponent props = PropertiesComponent.getInstance();
-        props.setValue(TOKEN_KEY, newToken);
-        props.setValue(USERNAME_KEY, newUsername);
+        synchronized (AUTH_LOCK) {
+            token = newToken;
+            username = newUsername;
+            PropertiesComponent props = PropertiesComponent.getInstance();
+            props.setValue(TOKEN_KEY, newToken);
+            props.setValue(USERNAME_KEY, newUsername);
+        }
         log.info("已保存登录状态: username={}", newUsername);
     }
 
@@ -51,11 +56,13 @@ public final class AuthManager {
      * 清除登录凭证（登出或 token 失效时调用）
      */
     public static void clearAuth() {
-        token = null;
-        username = null;
-        PropertiesComponent props = PropertiesComponent.getInstance();
-        props.unsetValue(TOKEN_KEY);
-        props.unsetValue(USERNAME_KEY);
+        synchronized (AUTH_LOCK) {
+            token = null;
+            username = null;
+            PropertiesComponent props = PropertiesComponent.getInstance();
+            props.unsetValue(TOKEN_KEY);
+            props.unsetValue(USERNAME_KEY);
+        }
         log.info("已清除登录状态");
     }
 

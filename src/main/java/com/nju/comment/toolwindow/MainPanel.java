@@ -248,7 +248,7 @@ public class MainPanel extends JPanel implements Disposable {
 
     private void reloadModelsAsync() {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
-            List<String> models = CommentGeneratorClient.getAvailableModels();
+            List<String> models = CommentGeneratorClient.getAvailableModels(project);
             ApplicationManager.getApplication().invokeLater(() -> {
                 suppressModelAction = true;
                 try {

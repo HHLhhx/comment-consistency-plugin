@@ -3,37 +3,29 @@ package com.nju.comment.service;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
-import com.intellij.psi.javadoc.PsiDocComment;
-import com.intellij.psi.search.FilenameIndex;
-import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.constant.Constant;
-import com.nju.comment.pojo.GenerateOptions;
-import com.nju.comment.pojo.MethodStatus;
-import com.nju.comment.dto.request.CommentReqTag;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
-import com.nju.comment.util.TextProcessUtil;
-import com.nju.comment.util.MethodRecordUtil;
-import com.nju.comment.pojo.MethodRecord;
-import com.nju.comment.util.MethodValidationUtil;
+import com.nju.comment.pojo.MethodStatus;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.*;
 
+/**
+ * 项目级核心服务：管理用户生命周期、自动化调度与 Gutter 图标去抖刷新。
+ * <p>
+ * 方法级的刷新 / 生成 / 变更检测逻辑委托给 {@link MethodRefreshService}。
+ */
 @Slf4j
 @Service(Service.Level.PROJECT)
 public final class PluginProjectService implements Disposable {
@@ -42,46 +34,78 @@ public final class PluginProjectService implements Disposable {
     private static final long GUTTER_REFRESH_DEBOUNCE_MS = 500;
 
     private final Project project;
-    private final MethodHistoryRepositoryImpl repository;
+    private final MethodHistoryRepositoryImpl history;
 
     @Getter
     private final MethodHistoryManager methodHistoryManager;
-    /**
-     * 去抖：每个文件对应一个延迟 restart 任务，新变更重置计时
-     */
-    private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingRefreshes = new ConcurrentHashMap<>();
+
+    @Getter
+    private final MethodRefreshService methodRefreshService;
 
     @Getter
     private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
 
+    /** 去抖：每个文件对应一个延迟 restart 任务，新变更重置计时 */
+    private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingRefreshes = new ConcurrentHashMap<>();
+
+    /** 保护 autoScheduler / autoUpdateTask / autoCleanTask / userSettings 的锁 */
+    private final Object scheduleLock = new Object();
+
     @Getter
-    private UserSettingsManager userSettings;
+    private volatile UserSettingsManager userSettings;
 
     private ScheduledExecutorService autoScheduler;
     private ScheduledFuture<?> autoUpdateTask;
     private ScheduledFuture<?> autoCleanTask;
 
-    /** UI 层注册的强制登出回调（切换到登录界面）
-     * -- SETTER --
-     *  注册强制登出回调（由 UI 层设置，用于切回登录界面）。
-     */
+    /** UI 层注册的强制登出回调（切换到登录界面） */
     @Setter
     private volatile Runnable onForceLogoutCallback;
 
     public PluginProjectService(Project project) {
         this.project = project;
-        this.repository = new MethodHistoryRepositoryImpl();
-        this.methodHistoryManager = new MethodHistoryManager(repository);
+        this.history = new MethodHistoryRepositoryImpl();
+        this.methodHistoryManager = new MethodHistoryManager(history);
+        this.methodRefreshService = new MethodRefreshService(
+                project, methodHistoryManager,
+                this::isAutoUpdateEnabled,
+                this::requestGutterIconRefresh);
     }
 
     // ==================== 自动化调度 ====================
 
     public void setAutoUpdateEnabled(boolean enabled) {
+        synchronized (scheduleLock) {
+            setAutoUpdateEnabledLocked(enabled);
+        }
+    }
+
+    public boolean isAutoUpdateEnabled() {
+        synchronized (scheduleLock) {
+            return autoUpdateTask != null && !autoUpdateTask.isCancelled();
+        }
+    }
+
+    public void setAutoCleanEnabled(boolean enabled) {
+        synchronized (scheduleLock) {
+            setAutoCleanEnabledLocked(enabled);
+        }
+    }
+
+    /** 必须在持有 scheduleLock 时调用 */
+    private void ensureSchedulerLocked() {
+        if (autoScheduler == null || autoScheduler.isShutdown()) {
+            autoScheduler = Executors.newSingleThreadScheduledExecutor();
+        }
+    }
+
+    /** 不加锁版本，供已持有 scheduleLock 的方法内部使用 */
+    private void setAutoUpdateEnabledLocked(boolean enabled) {
         if (enabled) {
-            ensureScheduler();
+            ensureSchedulerLocked();
             if (autoUpdateTask == null || autoUpdateTask.isCancelled()) {
                 autoUpdateTask = autoScheduler.scheduleWithFixedDelay(
-                        this::refreshAllMethodHistories,
+                        methodRefreshService::refreshAll,
                         Constant.AUTO_UPDATE_INITIAL_DELAY_MS,
                         Constant.AUTO_UPDATE_DELAY_MS, TimeUnit.MILLISECONDS);
             }
@@ -91,18 +115,15 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    public boolean isAutoUpdateEnabled() {
-        return autoUpdateTask != null && !autoUpdateTask.isCancelled();
-    }
-
-    public void setAutoCleanEnabled(boolean enabled) {
+    /** 不加锁版本，供已持有 scheduleLock 的方法内部使用 */
+    private void setAutoCleanEnabledLocked(boolean enabled) {
         if (enabled) {
-            ensureScheduler();
+            ensureSchedulerLocked();
             if (autoCleanTask == null || autoCleanTask.isCancelled()) {
                 autoCleanTask = autoScheduler.scheduleWithFixedDelay(
                         () -> DumbService.getInstance(project).runWhenSmart(() ->
                                 ApplicationManager.getApplication().executeOnPooledThread(() -> {
-                                    List<PsiMethod> methods = collectAllMethods(project);
+                                    List<PsiMethod> methods = methodRefreshService.collectAllMethods();
                                     methodHistoryManager.clearDeletedMethodHistories(methods);
                                 })),
                         Constant.AUTO_DELETE_INITIAL_DELAY_MS,
@@ -114,20 +135,11 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    private void ensureScheduler() {
-        if (autoScheduler == null || autoScheduler.isShutdown()) {
-            autoScheduler = Executors.newSingleThreadScheduledExecutor();
-        }
-    }
-
     // ==================== Gutter 图标刷新 ====================
 
     /**
      * 监听 Java 文件 PSI 变化，通过去抖延迟触发 DaemonCodeAnalyzer.restart，
      * 解决编辑注释时 gutter 图标不刷新的问题。
-     * <p>
-     * 去抖策略：同一文件连续变更只在最后一次变更后 {@value GUTTER_REFRESH_DEBOUNCE_MS}ms 才真正 restart，
-     * 避免每次击键都触发全量重新高亮。
      */
     private void registerGutterRefreshListener() {
         PsiManager.getInstance(project).addPsiTreeChangeListener(new PsiTreeChangeAdapter() {
@@ -143,23 +155,25 @@ public final class PluginProjectService implements Disposable {
     }
 
     /**
-     * 去抖调度：取消同文件的前序待执行 restart，重新延迟 {@value GUTTER_REFRESH_DEBOUNCE_MS}ms 后执行。
+     * 去抖调度：取消同文件的前序待执行 restart，重新延迟后执行。
      */
     private void scheduleGutterRefresh(PsiFile file) {
         String path = file.getVirtualFile().getPath();
-        ensureScheduler();
 
         ScheduledFuture<?> prev = pendingRefreshes.get(path);
         if (prev != null) prev.cancel(false);
 
-        ScheduledFuture<?> task = autoScheduler.schedule(() ->
-                ApplicationManager.getApplication().invokeLater(() -> {
-                    pendingRefreshes.remove(path);
-                    if (file.isValid()) {
-                        DaemonCodeAnalyzer.getInstance(project).restart(file);
-                    }
-                }), GUTTER_REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
-        pendingRefreshes.put(path, task);
+        synchronized (scheduleLock) {
+            ensureSchedulerLocked();
+            ScheduledFuture<?> task = autoScheduler.schedule(() ->
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        pendingRefreshes.remove(path);
+                        if (file.isValid()) {
+                            DaemonCodeAnalyzer.getInstance(project).restart(file);
+                        }
+                    }), GUTTER_REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+            pendingRefreshes.put(path, task);
+        }
     }
 
     /**
@@ -170,7 +184,7 @@ public final class PluginProjectService implements Disposable {
         scheduleGutterRefresh(file);
     }
 
-    // ==================== 项目服务 ====================
+    // ==================== 生命周期 ====================
 
     /**
      * 项目启动时初始化
@@ -184,7 +198,7 @@ public final class PluginProjectService implements Disposable {
         if (AuthManager.isLoggedIn()) {
             onUserLogin();
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
-                CommentGeneratorClient.getAvailableModels();
+                CommentGeneratorClient.getAvailableModels(project);
                 initializationFuture.complete(null);
             });
         } else {
@@ -197,20 +211,17 @@ public final class PluginProjectService implements Disposable {
      */
     public void onUserLogin() {
         String username = AuthManager.getUsername();
-        this.userSettings = new UserSettingsManager(project, username);
+        synchronized (scheduleLock) {
+            this.userSettings = new UserSettingsManager(project, username);
+            history.clear();
 
-        // 清除前一用户的内存数据
-        repository.clear();
+            String model = userSettings.getSelectedModel();
+            if (model != null) CommentGeneratorClient.setSelectedModel(model);
+            CommentGeneratorClient.setRagEnabled(userSettings.isRagEnabled());
 
-        // 恢复用户设置
-        String model = userSettings.getSelectedModel();
-        if (model != null) CommentGeneratorClient.setSelectedModel(model);
-        CommentGeneratorClient.setRagEnabled(userSettings.isRagEnabled());
-
-        // 启动自动化任务
-        setAutoUpdateEnabled(userSettings.isAutoUpdateEnabled());
-        setAutoCleanEnabled(true);
-
+            setAutoUpdateEnabledLocked(userSettings.isAutoUpdateEnabled());
+            setAutoCleanEnabledLocked(true);
+        }
         log.info("用户 {} 登录，已恢复设置", username);
     }
 
@@ -218,11 +229,13 @@ public final class PluginProjectService implements Disposable {
      * 用户登出时调用：保存设置，停止任务，清除数据。
      */
     public void onUserLogout() {
-        saveCurrentSettings();
-        setAutoUpdateEnabled(false);
-        setAutoCleanEnabled(false);
-        repository.clear();
-        userSettings = null;
+        synchronized (scheduleLock) {
+            saveCurrentSettingsLocked();
+            setAutoUpdateEnabledLocked(false);
+            setAutoCleanEnabledLocked(false);
+            history.clear();
+            userSettings = null;
+        }
         log.info("用户已登出，已清理资源");
     }
 
@@ -230,262 +243,73 @@ public final class PluginProjectService implements Disposable {
      * 服务端判定凭证失效时调用：执行登出 + 切换到登录界面。
      */
     public void forceLogout() {
-        onUserLogout();
+        synchronized (scheduleLock) {
+            saveCurrentSettingsLocked();
+            setAutoUpdateEnabledLocked(false);
+            setAutoCleanEnabledLocked(false);
+            history.clear();
+            userSettings = null;
+        }
         AuthManager.clearAuth();
         Runnable cb = onForceLogoutCallback;
         if (cb != null) {
             ApplicationManager.getApplication().invokeLater(cb);
         }
+        log.info("强制登出完成");
     }
 
     /**
      * 保存当前运行时设置到持久化存储。
      */
     public void saveCurrentSettings() {
+        synchronized (scheduleLock) {
+            saveCurrentSettingsLocked();
+        }
+    }
+
+    /** 必须在持有 scheduleLock 时调用 */
+    private void saveCurrentSettingsLocked() {
         if (userSettings == null) return;
         userSettings.setSelectedModel(CommentGeneratorClient.getSelectedModel());
         userSettings.setRagEnabled(CommentGeneratorClient.isRagEnabled());
-        userSettings.setAutoUpdateEnabled(isAutoUpdateEnabled());
+        userSettings.setAutoUpdateEnabled(autoUpdateTask != null && !autoUpdateTask.isCancelled());
     }
 
-    /**
-     * 刷新项目中所有方法历史记录
-     */
+    // ==================== 委托方法 ====================
+
     public void refreshAllMethodHistories() {
-        DumbService.getInstance(project).runWhenSmart(() ->
-                ApplicationManager.getApplication().executeOnPooledThread(this::doRefreshAllMethodHistories));
+        methodRefreshService.refreshAll();
     }
 
-    /**
-     * 刷新项目中所有方法历史记录的具体实现
-     */
-    private void doRefreshAllMethodHistories() {
-        log.info("刷新项目中所有方法历史记录");
-        List<PsiMethod> methods = collectAllMethods(project);
-        log.info("共找到方法数量：{}", methods.size());
-
-        for (PsiMethod method : methods) {
-            ApplicationManager.getApplication()
-                    .executeOnPooledThread(() -> doRefreshMethodHistory(method));
-        }
-    }
-
-    /**
-     * 收集项目中所有方法
-     *
-     * @param project 当前项目
-     * @return 方法列表
-     */
-    public List<PsiMethod> collectAllMethods(Project project) {
-        return ReadAction.compute(() -> {
-            List<PsiMethod> result = new ArrayList<>();
-            Collection<VirtualFile> files = FilenameIndex.getAllFilesByExt(project, "java", GlobalSearchScope.projectScope(project));
-            PsiManager psiManager = PsiManager.getInstance(project);
-            for (VirtualFile vf : files) {
-                PsiFile psiFile = psiManager.findFile(vf);
-                if (psiFile == null) continue;
-                Collection<PsiMethod> methods = PsiTreeUtil.collectElementsOfType(psiFile, PsiMethod.class);
-                result.addAll(methods);
-            }
-            return result;
-        });
-    }
-
-    /**
-     * 刷新单文件中所有方法历史记录
-     *
-     * @param file 目标文件
-     */
     public void refreshFileMethodHistories(VirtualFile file) {
-        DumbService.getInstance(project).runWhenSmart(() ->
-                ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshFileMethodHistories(file)));
+        methodRefreshService.refreshFile(file);
     }
 
-    /**
-     * 刷新单文件中所有方法历史记录的具体实现
-     *
-     * @param file 目标文件
-     */
-    private void doRefreshFileMethodHistories(VirtualFile file) {
-        if (file == null || !file.exists() || !"java".equalsIgnoreCase(file.getExtension())) {
-            log.warn("文件无效，无法刷新方法历史记录: {}", file);
-            return;
-        }
-
-        log.info("刷新文件方法历史记录，path: {}", file.getPath());
-        List<PsiMethod> methods = ReadAction.compute(() -> {
-            PsiManager psiManager = PsiManager.getInstance(project);
-            PsiFile psiFile = psiManager.findFile(file);
-            if (psiFile == null) return List.of();
-
-            Collection<PsiMethod> coll = PsiTreeUtil.collectElementsOfType(psiFile, PsiMethod.class);
-            return new ArrayList<>(coll);
-        });
-        log.info("文件中找到方法数量：{}", methods.size());
-
-        for (PsiMethod method : methods) {
-            ApplicationManager.getApplication()
-                    .executeOnPooledThread(() -> doRefreshMethodHistory(method));
-        }
-    }
-
-    /**
-     * 刷新单方法历史记录
-     *
-     * @param method 目标方法
-     */
     public void refreshMethodHistory(PsiMethod method) {
-        DumbService.getInstance(project).runWhenSmart(() ->
-                ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method)));
+        methodRefreshService.refreshMethod(method);
     }
 
-    /**
-     * 刷新单方法历史。自动周期更新与手动（项目/文件/方法）更新统一由此执行；
-     * 同一方法下「重复触发以最初为准、修改后再触发以最近为准」由 CommentGeneratorClient 按内容指纹保证。
-     */
-    private void doRefreshMethodHistory(PsiMethod method) {
-        ReadAction.run(() -> {
-            if (!MethodValidationUtil.isValid(method)) return;
-
-            PsiFile psiFile = method.getContainingFile();
-            String methodKey = MethodRecordUtil.buildMethodKey(method);
-            try {
-                methodHistoryManager.updateMethodHistoryAsync(method, (context, status) -> {
-                    // 根据状态选择生成标签
-                    CommentReqTag tag;
-                    if (MethodStatus.TO_BE_GENERATE.equals(status)) {
-                        tag = CommentReqTag.GENERATE;
-                    } else {
-                        tag = CommentGeneratorClient.isRagEnabled()
-                                ? CommentReqTag.UPDATE_WITH_RAG
-                                : CommentReqTag.UPDATE_WITHOUT_RAG;
-                    }
-                    GenerateOptions options = GenerateOptions.builder()
-                            .modelName(CommentGeneratorClient.getSelectedModel())
-                            .tag(tag)
-                            .build();
-
-                    // 使用异步回调方式生成注释，不阻塞UI线程
-                    CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {
-                        if (generatedComment == null) {
-                            return;
-                        }
-                        String processedComment = TextProcessUtil.processComment(generatedComment);
-
-                        // 在后台线程中更新历史记录
-                        ApplicationManager.getApplication().executeOnPooledThread(() -> {
-                            MethodRecord record = methodHistoryManager.findByKey(methodKey);
-                            if (record != null) {
-                                record.setStagedComment(processedComment);
-                                if (status.equals(MethodStatus.TO_BE_UPDATE)) {
-                                    // 更新为待更新状态
-                                    record.setStatus(MethodStatus.TO_BE_UPDATE);
-                                } else if (status.equals(MethodStatus.TO_BE_GENERATE)) {
-                                    // 更新为待生成状态
-                                    record.setStatus(MethodStatus.TO_BE_GENERATE);
-                                }
-                                record.touch();
-                                methodHistoryManager.save(record);
-                                requestGutterIconRefresh(psiFile);
-                            }
-                        });
-                    });
-                }, isAutoUpdateEnabled());
-                requestGutterIconRefresh(psiFile);
-            } catch (Exception ex) {
-                log.warn("刷新方法历史记录失败，方法签名：{}", methodKey, ex);
-            }
-        });
-    }
-
-    /**
-     * 生成方法注释
-     *
-     * @param method 目标方法
-     */
     public void generateComment(PsiMethod method) {
-        if (method == null) {
-            log.warn("方法为空，无法生成注释");
-            return;
-        }
-
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
-        if (!MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(preCheckChange(method))) {
-            log.info("方法不处于可生成注释状态，跳过生成：{}", methodKey);
-            return;
-        }
-
-        doRefreshMethodHistory(method);
-
-        MethodRecord record = methodHistoryManager.findByKey(methodKey);
-        if (!MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(record.getStatus())) {
-            log.info("方法不处于可生成注释状态，跳过生成：{}", methodKey);
-            return;
-        }
-
-        record.setStatus(MethodStatus.GENERATING);
-        record.touch();
-        methodHistoryManager.save(record);
-        refreshMethodHistory(method);
+        methodRefreshService.generateComment(method);
     }
 
-    /**
-     * 检查方法变更类型
-     *
-     * @param method 目标方法
-     * @return 变更类型
-     */
     public MethodStatus preCheckChange(PsiMethod method) {
-        if (method == null) {
-            log.warn("方法为空，无法检查变更");
-            return null;
-        }
-
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
-        MethodRecord record = methodHistoryManager.findByKey(methodKey);
-
-        String curComment = ReadAction.compute(() -> {
-            PsiDocComment pdc = method.getDocComment();
-            return pdc != null ? pdc.getText().trim() : "";
-        });
-        String curMethod = MethodRecordUtil.getMethodTextWithoutComments(method);
-
-        curComment = TextProcessUtil.processComment(curComment);
-        curMethod = TextProcessUtil.processMethod(curMethod);
-
-        if (record == null) {
-            return curComment.isEmpty() ? MethodStatus.NEW_METHOD_WITHOUT_COMMENT : MethodStatus.NEW_METHOD_WITH_COMMENT;
-        } else if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(record.getStatus())
-                || MethodStatus.NEW_METHOD_WITH_COMMENT.equals(record.getStatus())) {
-            return record.getStatus();
-        }
-
-        String oldComment = record.getOldComment();
-        String oldMethod = record.getOldMethod();
-
-        boolean commentChanged = !oldComment.equals(curComment);
-        boolean methodChanged = !oldMethod.equals(curMethod);
-
-        if (commentChanged) {
-            return MethodStatus.COMMENT_CHANGED;
-        } else if (methodChanged) {
-            return MethodStatus.METHOD_CHANGED;
-        }
-
-        return MethodStatus.UNCHANGED;
+        return methodRefreshService.preCheckChange(method);
     }
 
-    /**
-     * 项目关闭时释放资源
-     */
+    // ==================== 资源释放 ====================
+
     @Override
     public void dispose() {
         log.info("项目关闭，释放资源");
-        saveCurrentSettings();
-        setAutoUpdateEnabled(false);
-        setAutoCleanEnabled(false);
-        if (autoScheduler != null) {
-            autoScheduler.shutdownNow();
+        synchronized (scheduleLock) {
+            saveCurrentSettingsLocked();
+            setAutoUpdateEnabledLocked(false);
+            setAutoCleanEnabledLocked(false);
+            if (autoScheduler != null) {
+                autoScheduler.shutdownNow();
+                autoScheduler = null;
+            }
         }
         CommentGeneratorClient.shutdown();
     }

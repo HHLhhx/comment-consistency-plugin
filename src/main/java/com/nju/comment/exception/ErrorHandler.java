@@ -38,8 +38,9 @@ public final class ErrorHandler {
      *
      * @param ex          后端异常
      * @param retryAction 可重试时的重试动作，为 null 则不提供重试
+     * @param project     触发请求的项目，用于定向登出（可为 null）
      */
-    public static void handle(BackendException ex, Runnable retryAction) {
+    public static void handle(BackendException ex, Runnable retryAction, Project project) {
         ErrorCode code = ex.getErrorCode();
         String msg = ex.getMessage();
 
@@ -54,81 +55,79 @@ public final class ErrorHandler {
             case LLM_TIMEOUT -> notifyWithRetry(
                     "LLM 调用超时",
                     "LLM 调用超时，请稍后重试。",
-                    retryAction);
+                    retryAction, project);
 
             case COMMENT_SERVICE_ERROR -> notify(
                     "注释服务异常",
                     "注释服务处理异常: " + msg,
-                    NotificationType.ERROR);
+                    NotificationType.ERROR, project);
 
             case LLM_MODEL_FETCH_ERROR -> notify(
                     "模型列表获取失败",
                     "无法获取可用模型列表，请稍后点击 Refresh 重试。",
-                    NotificationType.WARNING);
+                    NotificationType.WARNING, project);
 
             case SYSTEM_ERROR -> notify(
                     "系统错误",
                     "后端系统异常: " + msg,
-                    NotificationType.ERROR);
+                    NotificationType.ERROR, project);
 
             case TIMEOUT_ERROR -> notify(
                     "请求超时",
                     "请求超时，请稍后重试。",
-                    NotificationType.WARNING);
+                    NotificationType.WARNING, project);
 
             case PARAMETER_ERROR -> log.warn("参数错误（不通知用户）: {}", msg);
 
             case AUTH_TOKEN_EXPIRED, AUTH_TOKEN_INVALID, AUTH_TOKEN_BLACKLISTED, AUTH_NOT_LOGGED_IN -> {
-                for (Project p : ProjectManager.getInstance().getOpenProjects()) {
-                    if (p.isDisposed()) continue;
-                    p.getService(PluginProjectService.class).forceLogout();
+                if (project != null && !project.isDisposed()) {
+                    project.getService(PluginProjectService.class).forceLogout();
                 }
                 notify("登录已失效",
                         "登录凭证已过期或无效，请重新登录。",
-                        NotificationType.WARNING);
+                        NotificationType.WARNING, project);
             }
 
             case AUTH_LOGIN_FAILED -> notify(
                     "登录失败",
                     "用户名或密码错误，请重试。",
-                    NotificationType.WARNING);
+                    NotificationType.WARNING, project);
 
             case AUTH_USERNAME_EXISTS -> notify(
                     "注册失败",
                     "用户名已存在，请换一个用户名。",
-                    NotificationType.WARNING);
+                    NotificationType.WARNING, project);
 
             case AUTH_PHONE_EXISTS -> notify(
                     "注册失败",
                     "手机号已被注册，请更换手机号。",
-                    NotificationType.WARNING);
+                    NotificationType.WARNING, project);
 
             case LLM_API_KEY_NOT_SET -> notify(
                     "API Key 未配置",
                     "请先在后端配置 API Key 后再使用。",
-                    NotificationType.WARNING);
+                    NotificationType.WARNING, project);
 
             case LLM_API_KEY_INVALID -> notify(
                     "API Key 无效",
                     "当前配置的 API Key 无效，请更新。",
-                    NotificationType.ERROR);
+                    NotificationType.ERROR, project);
 
             default -> log.error("未处理的后端错误 [code={}]: {}", code.getCode(), msg);
         }
     }
 
     /**
-     * 无重试的便捷入口
+     * 带项目上下文的便捷入口（无重试）
      */
-    public static void handle(BackendException ex) {
-        handle(ex, null);
+    public static void handle(BackendException ex, Project project) {
+        handle(ex, null, project);
     }
 
     // ========================== 通知工具方法 ==========================
 
-    private static void notify(String title, String content, NotificationType type) {
+    private static void notify(String title, String content, NotificationType type, Project project) {
         ApplicationManager.getApplication().invokeLater(() -> {
-            Project project = getOpenProject();
             NotificationGroupManager.getInstance()
                     .getNotificationGroup(NOTIFICATION_GROUP_ID)
                     .createNotification(title, content, type)
@@ -136,9 +135,8 @@ public final class ErrorHandler {
         });
     }
 
-    private static void notifyWithRetry(String title, String content, Runnable retryAction) {
+    private static void notifyWithRetry(String title, String content, Runnable retryAction, Project project) {
         ApplicationManager.getApplication().invokeLater(() -> {
-            Project project = getOpenProject();
             var notification = NotificationGroupManager.getInstance()
                     .getNotificationGroup(NOTIFICATION_GROUP_ID)
                     .createNotification(title, content, NotificationType.WARNING);

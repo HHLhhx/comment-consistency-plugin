@@ -179,7 +179,7 @@ public class  SettingsPanel extends JPanel {
     // ==================== API Key 操作 ====================
 
     private void loadCurrentKey() {
-        CommentGeneratorClient.checkApiKey()
+        CommentGeneratorClient.checkApiKey(project)
                 .thenAccept(maskedKey -> ApplicationManager.getApplication().invokeLater(() -> {
                     if (maskedKey == null || maskedKey.isBlank()) {
                         currentKeyLabel.setText("未设置");
@@ -207,7 +207,7 @@ public class  SettingsPanel extends JPanel {
         }
 
         saveKeyBtn.setEnabled(false);
-        CommentGeneratorClient.saveApiKey(key)
+        CommentGeneratorClient.saveApiKey(key, project)
                 .thenRun(() -> ApplicationManager.getApplication().invokeLater(() -> {
                     saveKeyBtn.setEnabled(true);
                     newKeyField.setText("");
@@ -230,7 +230,7 @@ public class  SettingsPanel extends JPanel {
         if (confirm != Messages.YES) return;
 
         deleteKeyBtn.setEnabled(false);
-        CommentGeneratorClient.deleteApiKey()
+        CommentGeneratorClient.deleteApiKey(project)
                 .thenRun(() -> ApplicationManager.getApplication().invokeLater(() -> {
                     deleteKeyBtn.setEnabled(true);
                     loadCurrentKey();

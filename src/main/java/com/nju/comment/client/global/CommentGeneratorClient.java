@@ -1,6 +1,7 @@
 package com.nju.comment.client.global;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.pojo.GenerateOptions;
 import com.nju.comment.pojo.InFlightRecord;
@@ -57,7 +58,7 @@ public class CommentGeneratorClient {
     private static final String FINGERPRINT_DELIM = "\u0001";
 
     @Getter
-    private static List<String> modelsList;
+    private static volatile List<String> modelsList;
 
     /**
      * 用户选定的模型
@@ -111,7 +112,7 @@ public class CommentGeneratorClient {
      * @param callback  异步回调，接收生成的注释文本（取消/跳过/失败时为null）
      */
     public static void generateCommentAsync(String methodKey, MethodContext data, GenerateOptions options,
-                                            Consumer<String> callback) {
+                                            Consumer<String> callback, Project project) {
         // 初始化检查
         initCheck();
 
@@ -165,9 +166,9 @@ public class CommentGeneratorClient {
                         } else if (t instanceof BackendException be) {
                             // 委托 ErrorHandler 统一处理，可重试的错误码传入重试动作
                             Runnable retryAction = be.getErrorCode().isRetryable()
-                                    ? () -> generateCommentAsync(methodKey, data, options, callback)
+                                    ? () -> generateCommentAsync(methodKey, data, options, callback, project)
                                     : null;
-                            ErrorHandler.handle(be, retryAction);
+                            ErrorHandler.handle(be, retryAction, project);
                         } else {
                             log.error("注释生成异常, requestId={}", requestId, t);
                         }
@@ -227,7 +228,7 @@ public class CommentGeneratorClient {
      *
      * @return 模型名称列表，失败时返回空列表
      */
-    public static List<String> getAvailableModels() {
+    public static List<String> getAvailableModels(Project project) {
         initCheck();
         try {
             log.info("获取可用模型列表");
@@ -246,7 +247,7 @@ public class CommentGeneratorClient {
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof BackendException be) {
-                ErrorHandler.handle(be);
+                ErrorHandler.handle(be, project);
             } else {
                 log.error("获取可用模型列表失败", e);
             }
@@ -292,16 +293,7 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<AuthResponse> login(String username, String password) {
         initCheck();
-        return client.login(new LoginRequest(username, password)).whenComplete((r, ex) -> {
-            if (ex != null) {
-                Throwable cause = ex.getCause();
-                if (cause instanceof BackendException be) {
-                    ErrorHandler.handle(be);
-                } else {
-                    log.error("登录请求失败", ex);
-                }
-            }
-        });
+        return client.login(new LoginRequest(username, password));
     }
 
     /**
@@ -309,16 +301,7 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<AuthResponse> register(String username, String password, String phone) {
         initCheck();
-        return client.register(new RegisterRequest(username, password, phone)).whenComplete((r, ex) -> {
-            if (ex != null) {
-                Throwable cause = ex.getCause();
-                if (cause instanceof BackendException be) {
-                    ErrorHandler.handle(be);
-                } else {
-                    log.error("注册请求失败", ex);
-                }
-            }
-        });
+        return client.register(new RegisterRequest(username, password, phone));
     }
 
     /**
@@ -339,13 +322,13 @@ public class CommentGeneratorClient {
     /**
      * 保存 API Key
      */
-    public static CompletableFuture<Void> saveApiKey(String apiKey) {
+    public static CompletableFuture<Void> saveApiKey(String apiKey, Project project) {
         initCheck();
         return client.saveApiKey(new ApiKeyRequest(apiKey)).whenComplete((r, ex) -> {
             if (ex != null) {
                 Throwable cause = ex.getCause();
                 if (cause instanceof BackendException be) {
-                    ErrorHandler.handle(be);
+                    ErrorHandler.handle(be, project);
                 } else {
                     log.error("保存 API Key 请求失败", ex);
                 }
@@ -356,13 +339,13 @@ public class CommentGeneratorClient {
     /**
      * 查询 API Key（返回脱敏后的 Key，未设置时返回 null）
      */
-    public static CompletableFuture<String> checkApiKey() {
+    public static CompletableFuture<String> checkApiKey(Project project) {
         initCheck();
         return client.checkApiKey().whenComplete((r, ex) -> {
             if (ex != null) {
                 Throwable cause = ex.getCause();
                 if (cause instanceof BackendException be) {
-                    ErrorHandler.handle(be);
+                    ErrorHandler.handle(be, project);
                 } else {
                     log.error("查询 API Key 请求失败", ex);
                 }
@@ -373,13 +356,13 @@ public class CommentGeneratorClient {
     /**
      * 删除 API Key
      */
-    public static CompletableFuture<Void> deleteApiKey() {
+    public static CompletableFuture<Void> deleteApiKey(Project project) {
         initCheck();
         return client.deleteApiKey().whenComplete((r, ex) -> {
             if (ex != null) {
                 Throwable cause = ex.getCause();
                 if (cause instanceof BackendException be) {
-                    ErrorHandler.handle(be);
+                    ErrorHandler.handle(be, project);
                 } else {
                     log.error("删除 API Key 请求失败", ex);
                 }
