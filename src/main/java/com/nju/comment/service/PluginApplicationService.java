@@ -32,6 +32,21 @@ public final class PluginApplicationService implements Disposable {
         });
     }
 
+    /**
+     * 广播全局配置（模型/RAG/自动更新）变更到所有已打开项目。
+     */
+    public void broadcastGlobalSettingsChanged() {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            for (Project project : ProjectManager.getInstance().getOpenProjects()) {
+                if (project.isDisposed()) continue;
+                PluginProjectService service = project.getService(PluginProjectService.class);
+                if (service != null) {
+                    service.applyGlobalSettings();
+                }
+            }
+        });
+    }
+
     @Override
     public void dispose() {
         log.info("IDE 退出，释放全局资源");

@@ -20,7 +20,7 @@ import java.util.function.Consumer;
  * 设置面板：API Key 管理、自动化开关、登出。
  */
 @Slf4j
-public class  SettingsPanel extends JPanel {
+public class SettingsPanel extends JPanel {
 
     private final Project project;
     private JBLabel currentKeyLabel;
@@ -163,10 +163,7 @@ public class  SettingsPanel extends JPanel {
         panel.add(toggleRow("自动更新方法注释",
                 "定期自动检测并更新所有方法的注释",
                 service.isAutoUpdateEnabled(),
-                enabled -> {
-                    service.setAutoUpdateEnabled(enabled);
-                    service.saveCurrentSettings();
-                }));
+                service::updateAutoUpdateEnabled));
         panel.add(Box.createVerticalStrut(8));
 
         return panel;

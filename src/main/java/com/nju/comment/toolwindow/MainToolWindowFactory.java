@@ -41,6 +41,12 @@ public class MainToolWindowFactory implements ToolWindowFactory {
                         }
                     });
 
+                    // 注册配置状态变更回调，模型/RAG/自动更新变更后刷新当前界面以反映最新值
+                    service.setOnGlobalSettingsChangedCallback(() -> {
+                        if (!AuthManager.isLoggedIn()) return;
+                        refreshCurrentView(root, project);
+                    });
+
                     // 初始界面根据认证状态决定
                     if (AuthManager.isLoggedIn()) {
                         showMain(root, project);
@@ -80,6 +86,19 @@ public class MainToolWindowFactory implements ToolWindowFactory {
         ), BorderLayout.CENTER);
         root.revalidate();
         root.repaint();
+    }
+
+    /**
+     * 保持当前页面类型不变，仅重建页面以加载最新全局配置。
+     */
+    private static void refreshCurrentView(JPanel root, Project project) {
+        if (root.getComponentCount() == 0) return;
+        Component current = root.getComponent(0);
+        if (current instanceof MainPanel) {
+            showMain(root, project);
+        } else if (current instanceof SettingsPanel) {
+            showSettings(root, project);
+        }
     }
 
     /** 清理当前面板（释放定时器等资源） */

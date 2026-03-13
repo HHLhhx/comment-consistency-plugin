@@ -16,8 +16,8 @@ public class UserSettingsManager {
     private final PropertiesComponent props;
     private final String keyPrefix;
 
-    public UserSettingsManager(Project project, String username) {
-        this.props = PropertiesComponent.getInstance(project);
+    public UserSettingsManager(String username) {
+        this.props = PropertiesComponent.getInstance();
         this.keyPrefix = PREFIX + username + ".";
     }
 

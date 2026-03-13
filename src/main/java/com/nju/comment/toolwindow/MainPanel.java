@@ -128,10 +128,7 @@ public class MainPanel extends JPanel implements Disposable {
 
         JBLabel ragLabel = new JBLabel("RAG");
         ToggleSwitch ragToggle = new ToggleSwitch(CommentGeneratorClient.isRagEnabled());
-        ragToggle.addActionListener(e -> {
-            CommentGeneratorClient.setRagEnabled(ragToggle.isSelected());
-            pluginService.saveCurrentSettings();
-        });
+        ragToggle.addActionListener(e -> pluginService.updateRagEnabled(ragToggle.isSelected()));
         leftRow2.add(ragLabel);
         leftRow2.add(ragToggle);
 
@@ -165,8 +162,7 @@ public class MainPanel extends JPanel implements Disposable {
             if (suppressModelAction) return;
             String sel = (String) modelCombo.getSelectedItem();
             if (sel != null) {
-                CommentGeneratorClient.setSelectedModel(sel);
-                pluginService.saveCurrentSettings();
+                pluginService.updateSelectedModel(sel);
             }
         });
 
@@ -240,7 +236,7 @@ public class MainPanel extends JPanel implements Disposable {
                 comboBoxModel.setSelectedItem(sel);
             } else if (!models.isEmpty()) {
                 comboBoxModel.setSelectedItem(models.getFirst());
-                CommentGeneratorClient.setSelectedModel(models.getFirst());
+                pluginService.updateSelectedModel(models.getFirst());
             }
         } finally {
             suppressModelAction = false;
@@ -260,7 +256,7 @@ public class MainPanel extends JPanel implements Disposable {
                         comboBoxModel.setSelectedItem(sel);
                     } else if (!models.isEmpty()) {
                         comboBoxModel.setSelectedItem(models.getFirst());
-                        CommentGeneratorClient.setSelectedModel(models.getFirst());
+                        pluginService.updateSelectedModel(models.getFirst());
                     }
                 } finally {
                     suppressModelAction = false;

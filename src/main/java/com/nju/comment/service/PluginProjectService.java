@@ -65,6 +65,10 @@ public final class PluginProjectService implements Disposable {
     @Setter
     private volatile Runnable onAuthStateChangedCallback;
 
+    /** UI 层注册的全局配置变更回调（跨项目同步模型/RAG/自动更新） */
+    @Setter
+    private volatile Runnable onGlobalSettingsChangedCallback;
+
     public PluginProjectService(Project project) {
         this.project = project;
         this.history = new MethodHistoryRepositoryImpl();
@@ -219,14 +223,10 @@ public final class PluginProjectService implements Disposable {
     public void onUserLogin() {
         String username = AuthManager.getUsername();
         synchronized (scheduleLock) {
-            this.userSettings = new UserSettingsManager(project, username);
+            this.userSettings = new UserSettingsManager(username);
             history.clear();
 
-            String model = userSettings.getSelectedModel();
-            if (model != null) CommentGeneratorClient.setSelectedModel(model);
-            CommentGeneratorClient.setRagEnabled(userSettings.isRagEnabled());
-
-            setAutoUpdateEnabledLocked(userSettings.isAutoUpdateEnabled());
+            applySettingsFromStoreLocked();
             setAutoCleanEnabledLocked(true);
         }
         log.info("用户 {} 登录，已恢复设置", username);
@@ -259,6 +259,59 @@ public final class PluginProjectService implements Disposable {
         if (cb != null) {
             ApplicationManager.getApplication().invokeLater(cb);
         }
+    }
+
+    /**
+     * 应用全局配置到当前项目（由应用级广播触发）。
+     */
+    public void applyGlobalSettings() {
+        if (!AuthManager.isLoggedIn()) return;
+        synchronized (scheduleLock) {
+            if (userSettings == null) {
+                String username = AuthManager.getUsername();
+                if (username == null || username.isBlank()) return;
+                userSettings = new UserSettingsManager(username);
+            }
+            applySettingsFromStoreLocked();
+        }
+        Runnable cb = onGlobalSettingsChangedCallback;
+        if (cb != null) {
+            ApplicationManager.getApplication().invokeLater(cb);
+        }
+    }
+
+    /**
+     * 更新全局选中模型并广播到所有项目。
+     */
+    public void updateSelectedModel(String model) {
+        if (model == null || model.isBlank()) return;
+        synchronized (scheduleLock) {
+            if (userSettings == null) return;
+            userSettings.setSelectedModel(model);
+        }
+        broadcastGlobalSettingsChanged();
+    }
+
+    /**
+     * 更新全局 RAG 开关并广播到所有项目。
+     */
+    public void updateRagEnabled(boolean enabled) {
+        synchronized (scheduleLock) {
+            if (userSettings == null) return;
+            userSettings.setRagEnabled(enabled);
+        }
+        broadcastGlobalSettingsChanged();
+    }
+
+    /**
+     * 更新全局自动更新开关并广播到所有项目。
+     */
+    public void updateAutoUpdateEnabled(boolean enabled) {
+        synchronized (scheduleLock) {
+            if (userSettings == null) return;
+            userSettings.setAutoUpdateEnabled(enabled);
+        }
+        broadcastGlobalSettingsChanged();
     }
 
     /**
@@ -295,6 +348,24 @@ public final class PluginProjectService implements Disposable {
         userSettings.setSelectedModel(CommentGeneratorClient.getSelectedModel());
         userSettings.setRagEnabled(CommentGeneratorClient.isRagEnabled());
         userSettings.setAutoUpdateEnabled(autoUpdateTask != null && !autoUpdateTask.isCancelled());
+    }
+
+    /** 必须在持有 scheduleLock 时调用 */
+    private void applySettingsFromStoreLocked() {
+        String model = userSettings.getSelectedModel();
+        if (model != null && !model.isBlank()) {
+            CommentGeneratorClient.setSelectedModel(model);
+        }
+        CommentGeneratorClient.setRagEnabled(userSettings.isRagEnabled());
+        setAutoUpdateEnabledLocked(userSettings.isAutoUpdateEnabled());
+    }
+
+    private void broadcastGlobalSettingsChanged() {
+        PluginApplicationService appService = ApplicationManager.getApplication()
+                .getService(PluginApplicationService.class);
+        if (appService != null) {
+            appService.broadcastGlobalSettingsChanged();
+        }
     }
 
     // ==================== 委托方法 ====================
