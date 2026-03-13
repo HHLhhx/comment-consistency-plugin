@@ -31,6 +31,8 @@ import java.util.stream.Collectors;
 public class MainPanel extends JPanel implements Disposable {
 
     private final Project project;
+    private final PluginProjectService pluginService;
+
     private final DefaultComboBoxModel<String> comboBoxModel;
     private final ComboBox<String> modelCombo;
     private final JPanel cardsListPanel;
@@ -43,9 +45,8 @@ public class MainPanel extends JPanel implements Disposable {
     private Set<String> lastSeenSignatures = null;
     private boolean suppressModelAction = false;
 
-    private final PluginProjectService pluginService;
 
-    public MainPanel(Project project, Runnable onOpenSettings, Runnable onLogout) {
+    public MainPanel(Project project, Runnable onOpenSettings) {
         this.project = project;
         this.pluginService = project.getService(PluginProjectService.class);
         setLayout(new BorderLayout());
@@ -55,7 +56,7 @@ public class MainPanel extends JPanel implements Disposable {
         modelCombo.setPreferredSize(new Dimension(180, 28));
 
         // ---- 工具栏 ----
-        add(buildToolbar(onOpenSettings, onLogout), BorderLayout.NORTH);
+        add(buildToolbar(onOpenSettings), BorderLayout.NORTH);
 
         // ---- 卡片列表区域 ----
         cardsListPanel = new JPanel();
@@ -79,7 +80,7 @@ public class MainPanel extends JPanel implements Disposable {
 
     // ==================== 工具栏 ====================
 
-    private JPanel buildToolbar(Runnable onOpenSettings, Runnable onLogout) {
+    private JPanel buildToolbar(Runnable onOpenSettings) {
         JPanel toolbar = new JPanel();
         toolbar.setLayout(new BoxLayout(toolbar, BoxLayout.Y_AXIS));
         toolbar.setBorder(JBUI.Borders.empty(6, 8, 4, 8));
@@ -108,11 +109,7 @@ public class MainPanel extends JPanel implements Disposable {
         JButton logoutBtn = new JButton("登出");
         logoutBtn.setFont(logoutBtn.getFont().deriveFont(11f));
         logoutBtn.putClientProperty("JButton.buttonType", "borderless");
-        logoutBtn.addActionListener(e -> {
-            CommentGeneratorClient.logout();
-            pluginService.onUserLogout();
-            onLogout.run();
-        });
+        logoutBtn.addActionListener(e -> CommentGeneratorClient.logout());
 
         rightRow1.add(userLabel);
         rightRow1.add(settingsBtn);

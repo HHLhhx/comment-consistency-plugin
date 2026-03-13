@@ -28,7 +28,7 @@ public class  SettingsPanel extends JPanel {
     private JButton saveKeyBtn;
     private JButton deleteKeyBtn;
 
-    public SettingsPanel(Project project, Runnable onBack, Runnable onLogout) {
+    public SettingsPanel(Project project, Runnable onBack) {
         this.project = project;
         setLayout(new BorderLayout());
         setBorder(JBUI.Borders.empty(8, 12));
@@ -61,11 +61,7 @@ public class  SettingsPanel extends JPanel {
 
         JButton logoutBtn = new JButton("登出");
         logoutBtn.setForeground(JBColor.RED);
-        logoutBtn.addActionListener(e -> {
-            CommentGeneratorClient.logout();
-            project.getService(PluginProjectService.class).onUserLogout();
-            onLogout.run();
-        });
+        logoutBtn.addActionListener(e -> CommentGeneratorClient.logout());
 
         accountRow.add(userLabel, BorderLayout.WEST);
         accountRow.add(logoutBtn, BorderLayout.EAST);

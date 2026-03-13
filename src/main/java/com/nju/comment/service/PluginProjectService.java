@@ -61,6 +61,10 @@ public final class PluginProjectService implements Disposable {
     @Setter
     private volatile Runnable onForceLogoutCallback;
 
+    /** UI 层注册的全局认证状态变更回调（跨项目同步登录/登出/切号） */
+    @Setter
+    private volatile Runnable onAuthStateChangedCallback;
+
     public PluginProjectService(Project project) {
         this.project = project;
         this.history = new MethodHistoryRepositoryImpl();
@@ -240,6 +244,21 @@ public final class PluginProjectService implements Disposable {
             userSettings = null;
         }
         log.info("用户已登出，已清理资源");
+    }
+
+    /**
+     * 接收全局认证状态变更事件，并将当前项目同步到最新账号状态。
+     */
+    public void applyGlobalAuthState() {
+        if (AuthManager.isLoggedIn()) {
+            onUserLogin();
+        } else {
+            onUserLogout();
+        }
+        Runnable cb = onAuthStateChangedCallback;
+        if (cb != null) {
+            ApplicationManager.getApplication().invokeLater(cb);
+        }
     }
 
     /**

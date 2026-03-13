@@ -29,13 +29,24 @@ public class MainToolWindowFactory implements ToolWindowFactory {
                     JPanel root = new JPanel(new BorderLayout());
 
                     // 注册强制登出回调，用于服务端凭证失效时自动切回登录界面
-                    service.setOnForceLogoutCallback(() -> showLogin(root, project, toolWindow));
+                    service.setOnForceLogoutCallback(() -> showLogin(root));
 
+                    // 注册认证状态变更回调，登录成功/登出后自动切换界面
+                    service.setOnAuthStateChangedCallback(() -> {
+                        if (AuthManager.isLoggedIn()) {
+                            showMain(root, project);
+                            DumbService.getInstance(project).runWhenSmart(service::refreshAllMethodHistories);
+                        } else {
+                            showLogin(root);
+                        }
+                    });
+
+                    // 初始界面根据认证状态决定
                     if (AuthManager.isLoggedIn()) {
-                        showMain(root, project, toolWindow);
+                        showMain(root, project);
                         DumbService.getInstance(project).runWhenSmart(service::refreshAllMethodHistories);
                     } else {
-                        showLogin(root, project, toolWindow);
+                        showLogin(root);
                     }
 
                     Content content = ContentFactory.getInstance().createContent(root, "", false);
@@ -44,35 +55,28 @@ public class MainToolWindowFactory implements ToolWindowFactory {
     }
 
     /** 登录面板 */
-    static void showLogin(JPanel root, Project project, ToolWindow toolWindow) {
+    static void showLogin(JPanel root) {
         disposeAndClear(root);
-        root.add(new LoginPanel(() -> {
-            PluginProjectService svc = project.getService(PluginProjectService.class);
-            svc.onUserLogin();
-            showMain(root, project, toolWindow);
-            DumbService.getInstance(project).runWhenSmart(svc::refreshAllMethodHistories);
-        }), BorderLayout.CENTER);
+        root.add(new LoginPanel(), BorderLayout.CENTER);
         root.revalidate();
         root.repaint();
     }
 
     /** 功能主面板 */
-    static void showMain(JPanel root, Project project, ToolWindow toolWindow) {
+    static void showMain(JPanel root, Project project) {
         disposeAndClear(root);
         root.add(new MainPanel(project,
-                () -> showSettings(root, project, toolWindow),
-                () -> showLogin(root, project, toolWindow)
+                () -> showSettings(root, project)
         ), BorderLayout.CENTER);
         root.revalidate();
         root.repaint();
     }
 
     /** 设置面板 */
-    static void showSettings(JPanel root, Project project, ToolWindow toolWindow) {
+    static void showSettings(JPanel root, Project project) {
         disposeAndClear(root);
         root.add(new SettingsPanel(project,
-                () -> showMain(root, project, toolWindow),
-                () -> showLogin(root, project, toolWindow)
+                () -> showMain(root, project)
         ), BorderLayout.CENTER);
         root.revalidate();
         root.repaint();

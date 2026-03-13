@@ -365,7 +365,11 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<AuthResponse> login(String username, String password) {
         initCheck();
-        return client.login(new LoginRequest(username, password));
+        return client.login(new LoginRequest(username, password)).whenComplete((r, ex) -> {
+            if (ex == null) {
+                AuthManager.saveAuth(r.getToken(), username);
+            }
+        });
     }
 
     /**
@@ -373,20 +377,22 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<AuthResponse> register(String username, String password, String phone) {
         initCheck();
-        return client.register(new RegisterRequest(username, password, phone));
+        return client.register(new RegisterRequest(username, password, phone)).whenComplete((r, ex) -> {
+            if (ex == null) {
+                AuthManager.saveAuth(r.getToken(), username);
+            }
+        });
     }
 
     /**
      * 登出
      */
     public static void logout() {
-        if (client != null) {
-            client.logout().whenComplete((v, ex) -> {
-                if (ex != null) {
-                    log.warn("登出请求失败", ex);
-                }
-            });
-        }
+        client.logout().whenComplete((v, ex) -> {
+            if (ex != null) {
+                log.warn("登出请求失败", ex);
+            }
+        });
         AuthManager.clearAuth();
         log.info("已登出");
     }

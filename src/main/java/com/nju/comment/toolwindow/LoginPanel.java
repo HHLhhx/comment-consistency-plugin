@@ -6,7 +6,6 @@ import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBPasswordField;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
-import com.nju.comment.service.AuthManager;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import lombok.extern.slf4j.Slf4j;
 
@@ -29,7 +28,6 @@ public class LoginPanel extends JPanel {
 
     private final CardLayout cardLayout;
     private final JPanel cardPanel;
-    private final Runnable onLoginSuccess;
 
     // ---- 登录视图 ----
     private JBTextField loginUserField;
@@ -45,8 +43,7 @@ public class LoginPanel extends JPanel {
     private JButton regBackBtn;
     private JBLabel regStatus;
 
-    public LoginPanel(Runnable onLoginSuccess) {
-        this.onLoginSuccess = onLoginSuccess;
+    public LoginPanel() {
         setLayout(new GridBagLayout());
 
         cardLayout = new CardLayout();
@@ -181,10 +178,6 @@ public class LoginPanel extends JPanel {
         showStatus(loginStatus, "登录中...", false);
 
         CommentGeneratorClient.login(user, pass)
-                .thenAccept(resp -> {
-                    AuthManager.saveAuth(resp.getToken(), user);
-                    ApplicationManager.getApplication().invokeLater(onLoginSuccess);
-                })
                 .exceptionally(ex -> {
                     String msg = extractError(ex);
                     log.warn("登录失败: {}", msg);
@@ -213,10 +206,6 @@ public class LoginPanel extends JPanel {
         showStatus(regStatus, "注册中...", false);
 
         CommentGeneratorClient.register(user, pass, phone)
-                .thenAccept(resp -> {
-                    AuthManager.saveAuth(resp.getToken(), user);
-                    ApplicationManager.getApplication().invokeLater(onLoginSuccess);
-                })
                 .exceptionally(ex -> {
                     String msg = extractError(ex);
                     log.warn("注册失败: {}", msg);
@@ -314,9 +303,20 @@ public class LoginPanel extends JPanel {
 
     private static void attachClearOnType(JTextComponent field, JBLabel statusLabel) {
         field.getDocument().addDocumentListener(new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent e)  { statusLabel.setText(" "); }
-            @Override public void removeUpdate(DocumentEvent e)  { statusLabel.setText(" "); }
-            @Override public void changedUpdate(DocumentEvent e) { statusLabel.setText(" "); }
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                statusLabel.setText(" ");
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                statusLabel.setText(" ");
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                statusLabel.setText(" ");
+            }
         });
     }
 

@@ -1,6 +1,7 @@
 package com.nju.comment.service;
 
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.openapi.application.ApplicationManager;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -50,6 +51,7 @@ public final class AuthManager {
             props.setValue(USERNAME_KEY, newUsername);
         }
         log.info("已保存登录状态: username={}", newUsername);
+        notifyAuthChanged();
     }
 
     /**
@@ -64,9 +66,21 @@ public final class AuthManager {
             props.unsetValue(USERNAME_KEY);
         }
         log.info("已清除登录状态");
+        notifyAuthChanged();
     }
 
     public static boolean isLoggedIn() {
         return token != null && !token.isBlank();
+    }
+
+    /**
+     * 通过应用级服务广播认证状态变化。
+     */
+    private static void notifyAuthChanged() {
+        PluginApplicationService appService = ApplicationManager.getApplication()
+                .getService(PluginApplicationService.class);
+        if (appService != null) {
+            appService.broadcastAuthStateChanged();
+        }
     }
 }
