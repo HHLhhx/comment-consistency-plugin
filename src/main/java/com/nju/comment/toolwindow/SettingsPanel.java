@@ -7,14 +7,16 @@ import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
-import com.nju.comment.service.AuthManager;
 import com.nju.comment.client.global.CommentGeneratorClient;
+import com.nju.comment.service.AuthManager;
 import com.nju.comment.service.PluginProjectService;
-import lombok.extern.slf4j.Slf4j;
 
-import javax.swing.*;
 import java.awt.*;
 import java.util.function.Consumer;
+import javax.swing.*;
+
+import lombok.extern.slf4j.Slf4j;
+
 
 /**
  * 设置面板：API Key 管理、自动化开关、登出。
@@ -23,13 +25,20 @@ import java.util.function.Consumer;
 public class SettingsPanel extends JPanel {
 
     private final Project project;
+    private final PluginProjectService pluginService;
     private JBLabel currentKeyLabel;
     private JBTextField newKeyField;
     private JButton saveKeyBtn;
     private JButton deleteKeyBtn;
+    private JButton viewKeyBtn;
+
+    private String currentApiKey;
+    private boolean showFullApiKey;
+    private static final String MASKED_API_KEY_TEXT = "****************";
 
     public SettingsPanel(Project project, Runnable onBack) {
         this.project = project;
+        this.pluginService = project.getService(PluginProjectService.class);
         setLayout(new BorderLayout());
         setBorder(JBUI.Borders.empty(8, 12));
 
@@ -112,9 +121,19 @@ public class SettingsPanel extends JPanel {
         JBLabel keyIcon = new JBLabel("\uD83D\uDD11");
         currentKeyLabel = new JBLabel("加载中...");
         currentKeyLabel.setFont(JBUI.Fonts.create(Font.MONOSPACED, 12));
+        viewKeyBtn = new JButton("查看");
+        viewKeyBtn.putClientProperty("JButton.buttonType", "borderless");
+        viewKeyBtn.setEnabled(false);
+        viewKeyBtn.addActionListener(e -> {
+            if (currentApiKey == null || currentApiKey.isBlank()) return;
+            showFullApiKey = !showFullApiKey;
+            pluginService.updateShowFullApiKeyEnabled(showFullApiKey);
+            renderApiKeyDisplay();
+        });
 
         currentRow.add(keyIcon);
         currentRow.add(currentKeyLabel);
+        currentRow.add(viewKeyBtn);
         panel.add(currentRow);
         panel.add(Box.createVerticalStrut(10));
 
@@ -172,24 +191,39 @@ public class SettingsPanel extends JPanel {
     // ==================== API Key 操作 ====================
 
     private void loadCurrentKey() {
+        showFullApiKey = pluginService.isShowFullApiKeyEnabled();
         CommentGeneratorClient.checkApiKey(project)
-                .thenAccept(maskedKey -> ApplicationManager.getApplication().invokeLater(() -> {
-                    if (maskedKey == null || maskedKey.isBlank()) {
-                        currentKeyLabel.setText("未设置");
-                        currentKeyLabel.setForeground(JBColor.GRAY);
-                    } else {
-                        currentKeyLabel.setText(maskedKey);
-                        currentKeyLabel.setForeground(JBColor.foreground());
-                    }
-                }))
+                .thenAccept(apiKey ->
+                        ApplicationManager.getApplication().invokeLater(() -> {
+                            currentApiKey = apiKey;
+                            renderApiKeyDisplay();
+                        }))
                 .exceptionally(ex -> {
                     log.warn("查询 API Key 失败");
                     ApplicationManager.getApplication().invokeLater(() -> {
+                        currentApiKey = null;
                         currentKeyLabel.setText("查询失败");
                         currentKeyLabel.setForeground(JBColor.RED);
+                        viewKeyBtn.setText("查看");
+                        viewKeyBtn.setEnabled(false);
                     });
                     return null;
                 });
+    }
+
+    private void renderApiKeyDisplay() {
+        if (currentApiKey == null || currentApiKey.isBlank()) {
+            currentKeyLabel.setText("未设置");
+            currentKeyLabel.setForeground(JBColor.GRAY);
+            viewKeyBtn.setText("查看");
+            viewKeyBtn.setEnabled(false);
+            return;
+        }
+
+        currentKeyLabel.setForeground(JBColor.foreground());
+        currentKeyLabel.setText(showFullApiKey ? currentApiKey : MASKED_API_KEY_TEXT);
+        viewKeyBtn.setText(showFullApiKey ? "隐藏" : "查看");
+        viewKeyBtn.setEnabled(true);
     }
 
     private void doSaveKey() {
@@ -205,6 +239,7 @@ public class SettingsPanel extends JPanel {
                     saveKeyBtn.setEnabled(true);
                     newKeyField.setText("");
                     loadCurrentKey();
+                    pluginService.notifyGlobalSettingsChanged();
                     Messages.showInfoMessage(project, "API Key 保存成功", "提示");
                 }))
                 .exceptionally(ex -> {
@@ -227,6 +262,7 @@ public class SettingsPanel extends JPanel {
                 .thenRun(() -> ApplicationManager.getApplication().invokeLater(() -> {
                     deleteKeyBtn.setEnabled(true);
                     loadCurrentKey();
+                    pluginService.notifyGlobalSettingsChanged();
                     Messages.showInfoMessage(project, "API Key 已删除", "提示");
                 }))
                 .exceptionally(ex -> {
@@ -242,6 +278,15 @@ public class SettingsPanel extends JPanel {
 
     // ==================== UI 工具方法 ====================
 
+    /**
+     * 响应跨项目全局配置变更，原位刷新当前设置页，避免重建面板导致闪烁。
+     */
+    public void onGlobalSettingsChanged() {
+        showFullApiKey = pluginService.isShowFullApiKeyEnabled();
+        renderApiKeyDisplay();
+        loadCurrentKey();
+    }
+
     private static JBLabel sectionHeader(String text) {
         JBLabel label = new JBLabel(text);
         label.setFont(label.getFont().deriveFont(Font.BOLD, 14f));
@@ -249,8 +294,7 @@ public class SettingsPanel extends JPanel {
         return label;
     }
 
-    private static JPanel toggleRow(String label, String tooltip,
-                                    boolean initialValue, Consumer<Boolean> onChange) {
+    private static JPanel toggleRow(String label, String tooltip, boolean initialValue, Consumer<Boolean> onChange) {
         JPanel row = new JPanel(new BorderLayout());
         row.setOpaque(false);
         row.setAlignmentX(LEFT_ALIGNMENT);

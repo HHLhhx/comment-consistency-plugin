@@ -44,4 +44,12 @@ public class UserSettingsManager {
     public void setAutoUpdateEnabled(boolean enabled) {
         props.setValue(keyPrefix + "autoUpdate", enabled, false);
     }
+
+    public boolean isShowFullApiKeyEnabled() {
+        return props.getBoolean(keyPrefix + "showFullApiKey", false);
+    }
+
+    public void setShowFullApiKeyEnabled(boolean enabled) {
+        props.setValue(keyPrefix + "showFullApiKey", enabled, false);
+    }
 }

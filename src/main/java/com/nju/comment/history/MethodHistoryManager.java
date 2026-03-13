@@ -79,7 +79,7 @@ public record MethodHistoryManager(MethodHistoryRepository repository, Project p
         // 自动更新关闭时，需要更新至稳态
         if (!isAutoUpdateEnabled
                 && (MethodStatus.NEW_METHOD_WITH_COMMENT.equals(result.state()) || MethodStatus.COMMENT_CHANGED.equals(result.state()))) {
-            updateMethodHistoryAsync(method, commentGeneratorAsync, isAutoUpdateEnabled);
+            updateMethodHistoryAsync(method, commentGeneratorAsync, false);
         }
     }
 
@@ -140,14 +140,5 @@ public record MethodHistoryManager(MethodHistoryRepository repository, Project p
      */
     public List<MethodRecord> findAll() {
         return repository.findAll();
-    }
-
-    /**
-     * 打印所有方法历史记录（用于调试）
-     */
-    public void printAllMethodRecords() {
-        for (MethodRecord record : repository.findAll()) {
-            System.out.println(record);
-        }
     }
 }

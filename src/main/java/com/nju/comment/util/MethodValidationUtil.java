@@ -208,8 +208,6 @@ public final class MethodValidationUtil {
         boolean isStrictfp = method.hasModifierProperty(PsiModifier.STRICTFP);
         boolean isDefault = method.hasModifierProperty(PsiModifier.DEFAULT);
 
-        boolean isPublic = method.hasModifierProperty(PsiModifier.PUBLIC);
-
         // 抽象方法与多种修饰符互斥
         if (isAbstract && (isFinal || isPrivate || isStatic || isNative || isSynchronized || isStrictfp || isDefault)) {
             log.warn("抽象方法存在互斥修饰符，跳过：{}", methodKey);

@@ -10,10 +10,12 @@ import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 import com.nju.comment.service.AuthManager;
 import com.nju.comment.service.PluginProjectService;
+
+import java.awt.*;
+import javax.swing.*;
+
 import org.jetbrains.annotations.NotNull;
 
-import javax.swing.*;
-import java.awt.*;
 
 /**
  * ToolWindow 工厂，管理三屏切换：登录 ↔ 功能主面板 ↔ 设置。
@@ -44,7 +46,7 @@ public class MainToolWindowFactory implements ToolWindowFactory {
                     // 注册配置状态变更回调，模型/RAG/自动更新变更后刷新当前界面以反映最新值
                     service.setOnGlobalSettingsChangedCallback(() -> {
                         if (!AuthManager.isLoggedIn()) return;
-                        refreshCurrentView(root, project);
+                        applySettingsToCurrentView(root, project);
                     });
 
                     // 初始界面根据认证状态决定
@@ -60,7 +62,9 @@ public class MainToolWindowFactory implements ToolWindowFactory {
                 }));
     }
 
-    /** 登录面板 */
+    /**
+     * 登录面板
+     */
     static void showLogin(JPanel root) {
         disposeAndClear(root);
         root.add(new LoginPanel(), BorderLayout.CENTER);
@@ -68,7 +72,9 @@ public class MainToolWindowFactory implements ToolWindowFactory {
         root.repaint();
     }
 
-    /** 功能主面板 */
+    /**
+     * 功能主面板
+     */
     static void showMain(JPanel root, Project project) {
         disposeAndClear(root);
         root.add(new MainPanel(project,
@@ -78,7 +84,9 @@ public class MainToolWindowFactory implements ToolWindowFactory {
         root.repaint();
     }
 
-    /** 设置面板 */
+    /**
+     * 设置面板
+     */
     static void showSettings(JPanel root, Project project) {
         disposeAndClear(root);
         root.add(new SettingsPanel(project,
@@ -89,19 +97,21 @@ public class MainToolWindowFactory implements ToolWindowFactory {
     }
 
     /**
-     * 保持当前页面类型不变，仅重建页面以加载最新全局配置。
+     * 将全局配置应用到当前页面，设置页优先原位刷新以避免闪烁。
      */
-    private static void refreshCurrentView(JPanel root, Project project) {
+    private static void applySettingsToCurrentView(JPanel root, Project project) {
         if (root.getComponentCount() == 0) return;
         Component current = root.getComponent(0);
         if (current instanceof MainPanel) {
             showMain(root, project);
         } else if (current instanceof SettingsPanel) {
-            showSettings(root, project);
+            ((SettingsPanel) current).onGlobalSettingsChanged();
         }
     }
 
-    /** 清理当前面板（释放定时器等资源） */
+    /**
+     * 清理当前面板（释放定时器等资源）
+     */
     private static void disposeAndClear(JPanel root) {
         for (Component c : root.getComponents()) {
             if (c instanceof Disposable d) {

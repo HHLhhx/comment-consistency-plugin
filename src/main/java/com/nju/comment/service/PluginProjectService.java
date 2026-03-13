@@ -13,13 +13,15 @@ import com.nju.comment.constant.Constant;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.pojo.MethodStatus;
+
+import java.util.List;
+import java.util.concurrent.*;
+
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.List;
-import java.util.concurrent.*;
 
 /**
  * 项目级核心服务：管理用户生命周期、自动化调度与 Gutter 图标去抖刷新。
@@ -44,10 +46,14 @@ public final class PluginProjectService implements Disposable {
     @Getter
     private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
 
-    /** 去抖：每个文件对应一个延迟 restart 任务，新变更重置计时 */
+    /**
+     * 去抖：每个文件对应一个延迟 restart 任务，新变更重置计时
+     */
     private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingRefreshes = new ConcurrentHashMap<>();
 
-    /** 保护 autoScheduler / autoUpdateTask / autoCleanTask / userSettings 的锁 */
+    /**
+     * 保护 autoScheduler / autoUpdateTask / autoCleanTask / userSettings 的锁
+     */
     private final Object scheduleLock = new Object();
 
     @Getter
@@ -57,15 +63,21 @@ public final class PluginProjectService implements Disposable {
     private ScheduledFuture<?> autoUpdateTask;
     private ScheduledFuture<?> autoCleanTask;
 
-    /** UI 层注册的强制登出回调（切换到登录界面） */
+    /**
+     * UI 层注册的强制登出回调（切换到登录界面）
+     */
     @Setter
     private volatile Runnable onForceLogoutCallback;
 
-    /** UI 层注册的全局认证状态变更回调（跨项目同步登录/登出/切号） */
+    /**
+     * UI 层注册的全局认证状态变更回调（跨项目同步登录/登出/切号）
+     */
     @Setter
     private volatile Runnable onAuthStateChangedCallback;
 
-    /** UI 层注册的全局配置变更回调（跨项目同步模型/RAG/自动更新） */
+    /**
+     * UI 层注册的全局配置变更回调（跨项目同步模型/RAG/自动更新）
+     */
     @Setter
     private volatile Runnable onGlobalSettingsChangedCallback;
 
@@ -99,7 +111,9 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    /** 必须在持有 scheduleLock 时调用 */
+    /**
+     * 必须在持有 scheduleLock 时调用
+     */
     private void ensureSchedulerLocked() {
         if (autoScheduler == null || autoScheduler.isShutdown()) {
             autoScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -110,7 +124,9 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    /** 不加锁版本，供已持有 scheduleLock 的方法内部使用 */
+    /**
+     * 不加锁版本，供已持有 scheduleLock 的方法内部使用
+     */
     private void setAutoUpdateEnabledLocked(boolean enabled) {
         if (enabled) {
             ensureSchedulerLocked();
@@ -126,7 +142,9 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    /** 不加锁版本，供已持有 scheduleLock 的方法内部使用 */
+    /**
+     * 不加锁版本，供已持有 scheduleLock 的方法内部使用
+     */
     private void setAutoCleanEnabledLocked(boolean enabled) {
         if (enabled) {
             ensureSchedulerLocked();
@@ -315,6 +333,30 @@ public final class PluginProjectService implements Disposable {
     }
 
     /**
+     * 更新是否显示完整 API Key 的全局开关并广播到所有项目。
+     */
+    public void updateShowFullApiKeyEnabled(boolean enabled) {
+        synchronized (scheduleLock) {
+            if (userSettings == null) return;
+            userSettings.setShowFullApiKeyEnabled(enabled);
+        }
+        broadcastGlobalSettingsChanged();
+    }
+
+    public boolean isShowFullApiKeyEnabled() {
+        synchronized (scheduleLock) {
+            return userSettings != null && userSettings.isShowFullApiKeyEnabled();
+        }
+    }
+
+    /**
+     * 主动触发一次全局配置广播（用于 API Key 保存/删除后跨项目刷新）。
+     */
+    public void notifyGlobalSettingsChanged() {
+        broadcastGlobalSettingsChanged();
+    }
+
+    /**
      * 服务端判定凭证失效时调用：执行登出 + 切换到登录界面。
      */
     public void forceLogout() {
@@ -342,7 +384,9 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    /** 必须在持有 scheduleLock 时调用 */
+    /**
+     * 必须在持有 scheduleLock 时调用
+     */
     private void saveCurrentSettingsLocked() {
         if (userSettings == null) return;
         userSettings.setSelectedModel(CommentGeneratorClient.getSelectedModel());
@@ -350,7 +394,9 @@ public final class PluginProjectService implements Disposable {
         userSettings.setAutoUpdateEnabled(autoUpdateTask != null && !autoUpdateTask.isCancelled());
     }
 
-    /** 必须在持有 scheduleLock 时调用 */
+    /**
+     * 必须在持有 scheduleLock 时调用
+     */
     private void applySettingsFromStoreLocked() {
         String model = userSettings.getSelectedModel();
         if (model != null && !model.isBlank()) {
@@ -361,8 +407,8 @@ public final class PluginProjectService implements Disposable {
     }
 
     private void broadcastGlobalSettingsChanged() {
-        PluginApplicationService appService = ApplicationManager.getApplication()
-                .getService(PluginApplicationService.class);
+        PluginApplicationService appService =
+                ApplicationManager.getApplication().getService(PluginApplicationService.class);
         if (appService != null) {
             appService.broadcastGlobalSettingsChanged();
         }

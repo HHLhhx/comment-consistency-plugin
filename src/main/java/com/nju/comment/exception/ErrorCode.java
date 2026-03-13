@@ -1,7 +1,6 @@
 package com.nju.comment.exception;
 
 import lombok.Getter;
-import org.apache.http.HttpStatus;
 
 import java.util.Map;
 import java.util.function.Function;
