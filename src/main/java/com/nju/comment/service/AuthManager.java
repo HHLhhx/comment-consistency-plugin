@@ -6,9 +6,7 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 全局认证状态管理器。
- * <p>
- * 在内存中持有当前 JWT Token，并通过 IntelliJ {@link PropertiesComponent} 做跨会话持久化。
+ * 全局认证状态管理器
  */
 @Slf4j
 public final class AuthManager {
@@ -69,6 +67,9 @@ public final class AuthManager {
         notifyAuthChanged();
     }
 
+    /**
+     * 检查当前是否有有效的登录状态
+     */
     public static boolean isLoggedIn() {
         return token != null && !token.isBlank();
     }
@@ -80,7 +81,7 @@ public final class AuthManager {
         PluginApplicationService appService = ApplicationManager.getApplication()
                 .getService(PluginApplicationService.class);
         if (appService != null) {
-            appService.broadcastAuthStateChanged();
+            appService.publishAuthStateChanged();
         }
     }
 }

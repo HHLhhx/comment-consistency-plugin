@@ -30,10 +30,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
- * 方法级刷新 / 生成 / 变更检测的业务逻辑。
- * <p>
- * 与调度基础设施解耦：通过 {@code autoUpdateCheck} 和 {@code gutterRefreshRequester}
- * 两个函数式回调与 {@link PluginProjectService} 交互，避免循环依赖。
+ * 方法级刷新 / 生成 / 变更检测的业务逻辑
  */
 @Slf4j
 public class MethodRefreshService {

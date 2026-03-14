@@ -18,10 +18,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 
 /**
- * 在需要手动触发注释更新/生成的方法旁边显示 Gutter 图标。
- * <p>
- * tooltip 与点击弹窗文案均在展示/点击时实时调用 {@code preCheckChange} 获取最新状态，
- * 确保文案始终与方法当前变更类型一致。
+ * 在发生变更的方法旁边显示 Gutter 图标。
  */
 public class CommentGutterIconProvider implements LineMarkerProvider {
 

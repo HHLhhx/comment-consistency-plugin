@@ -5,13 +5,14 @@ import lombok.Getter;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
 
 /**
- * iOS/macOS 风格的滑动开关组件。
+ * 滑动开关组件
  */
 @Getter
 public class ToggleSwitch extends JComponent {
@@ -49,8 +50,8 @@ public class ToggleSwitch extends JComponent {
             repaint();
             firePropertyChange("selected", old, sel);
             for (ActionListener l : listenerList.getListeners(ActionListener.class)) {
-                l.actionPerformed(new java.awt.event.ActionEvent(
-                        this, java.awt.event.ActionEvent.ACTION_PERFORMED, "toggle"));
+                l.actionPerformed(new ActionEvent(
+                        this, ActionEvent.ACTION_PERFORMED, "toggle"));
             }
         }
     }

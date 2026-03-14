@@ -30,24 +30,7 @@ public class MainToolWindowFactory implements ToolWindowFactory {
                 ApplicationManager.getApplication().invokeLater(() -> {
                     JPanel root = new JPanel(new BorderLayout());
 
-                    // 注册强制登出回调，用于服务端凭证失效时自动切回登录界面
-                    service.setOnForceLogoutCallback(() -> showLogin(root));
-
-                    // 注册认证状态变更回调，登录成功/登出后自动切换界面
-                    service.setOnAuthStateChangedCallback(() -> {
-                        if (AuthManager.isLoggedIn()) {
-                            showMain(root, project);
-                            DumbService.getInstance(project).runWhenSmart(service::refreshAllMethodHistories);
-                        } else {
-                            showLogin(root);
-                        }
-                    });
-
-                    // 注册配置状态变更回调，模型/RAG/自动更新变更后刷新当前界面以反映最新值
-                    service.setOnGlobalSettingsChangedCallback(() -> {
-                        if (!AuthManager.isLoggedIn()) return;
-                        applySettingsToCurrentView(root, project);
-                    });
+                    registerUiCallbacks(service, root, project);
 
                     // 初始界面根据认证状态决定
                     if (AuthManager.isLoggedIn()) {
@@ -60,6 +43,27 @@ public class MainToolWindowFactory implements ToolWindowFactory {
                     Content content = ContentFactory.getInstance().createContent(root, "", false);
                     toolWindow.getContentManager().addContent(content);
                 }));
+    }
+
+    private static void registerUiCallbacks(PluginProjectService service, JPanel root, Project project) {
+        // 注册强制登出回调，用于服务端凭证失效时自动切回登录界面
+        service.setOnForceLogoutCallback(() -> showLogin(root));
+
+        // 注册认证状态变更回调，登录成功/登出后自动切换界面
+        service.setOnAuthStateChangedCallback(() -> {
+            if (AuthManager.isLoggedIn()) {
+                showMain(root, project);
+                DumbService.getInstance(project).runWhenSmart(service::refreshAllMethodHistories);
+            } else {
+                showLogin(root);
+            }
+        });
+
+        // 注册配置状态变更回调，模型/RAG/自动更新变更后刷新当前界面以反映最新值
+        service.setOnGlobalSettingsChangedCallback(() -> {
+            if (!AuthManager.isLoggedIn()) return;
+            applySettingsToCurrentView(root, project);
+        });
     }
 
     /**

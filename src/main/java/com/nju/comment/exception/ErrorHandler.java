@@ -37,7 +37,7 @@ public final class ErrorHandler {
      *
      * @param ex          后端异常
      * @param retryAction 可重试时的重试动作，为 null 则不提供重试
-     * @param project     触发请求的项目，用于定向登出（可为 null）
+     * @param project     触发请求的项目
      */
     public static void handle(BackendException ex, Runnable retryAction, Project project, @Nullable String methodKey) {
         ErrorCode code = ex.getErrorCode();

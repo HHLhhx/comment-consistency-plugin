@@ -12,7 +12,6 @@ import com.nju.comment.service.AuthManager;
 import com.nju.comment.service.PluginProjectService;
 
 import java.awt.*;
-import java.util.function.Consumer;
 import javax.swing.*;
 
 import lombok.extern.slf4j.Slf4j;
@@ -32,9 +31,15 @@ public class SettingsPanel extends JPanel {
     private JButton deleteKeyBtn;
     private JButton viewKeyBtn;
 
+    private ToggleSwitch autoUpdateToggle;
+    // 避免在 onGlobalSettingsChanged 刷新 autoUpdateToggle 时触发事件，导致回环触发。
+    private boolean suppressAutoUpdateToggleEvent;
+
     private String currentApiKey;
+    private boolean apiKeyLoaded;
+    private boolean apiKeyConfiguredHint;
     private boolean showFullApiKey;
-    private static final String MASKED_API_KEY_TEXT = "****************";
+    private static final String MASKED_API_KEY_TEXT = "********************************";
 
     public SettingsPanel(Project project, Runnable onBack) {
         this.project = project;
@@ -119,17 +124,12 @@ public class SettingsPanel extends JPanel {
         currentRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
 
         JBLabel keyIcon = new JBLabel("\uD83D\uDD11");
-        currentKeyLabel = new JBLabel("加载中...");
+        currentKeyLabel = new JBLabel(MASKED_API_KEY_TEXT);
         currentKeyLabel.setFont(JBUI.Fonts.create(Font.MONOSPACED, 12));
         viewKeyBtn = new JButton("查看");
         viewKeyBtn.putClientProperty("JButton.buttonType", "borderless");
-        viewKeyBtn.setEnabled(false);
-        viewKeyBtn.addActionListener(e -> {
-            if (currentApiKey == null || currentApiKey.isBlank()) return;
-            showFullApiKey = !showFullApiKey;
-            pluginService.updateShowFullApiKeyEnabled(showFullApiKey);
-            renderApiKeyDisplay();
-        });
+        viewKeyBtn.addActionListener(e -> onViewKeyToggleClicked());
+        viewKeyBtn.setEnabled(true);
 
         currentRow.add(keyIcon);
         currentRow.add(currentKeyLabel);
@@ -165,7 +165,10 @@ public class SettingsPanel extends JPanel {
         btnRow.add(deleteKeyBtn);
         panel.add(btnRow);
 
-        loadCurrentKey();
+        showFullApiKey = pluginService.isShowFullApiKeyEnabled();
+        apiKeyConfiguredHint = pluginService.isApiKeyConfiguredHint();
+        syncApiKeyCacheFromClient();
+        renderApiKeyDisplay();
         return panel;
     }
 
@@ -177,12 +180,23 @@ public class SettingsPanel extends JPanel {
         panel.setOpaque(false);
         panel.setAlignmentX(LEFT_ALIGNMENT);
 
-        PluginProjectService service = project.getService(PluginProjectService.class);
+        JPanel row = new JPanel(new BorderLayout());
+        row.setOpaque(false);
+        row.setAlignmentX(LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        row.setToolTipText("定期自动检测并更新所有方法的注释");
 
-        panel.add(toggleRow("自动更新方法注释",
-                "定期自动检测并更新所有方法的注释",
-                service.isAutoUpdateEnabled(),
-                service::updateAutoUpdateEnabled));
+        JBLabel lbl = new JBLabel("自动更新方法注释");
+        autoUpdateToggle = new ToggleSwitch(pluginService.isAutoUpdateEnabled());
+        autoUpdateToggle.addActionListener(e -> {
+            if (suppressAutoUpdateToggleEvent) return;
+            pluginService.updateAutoUpdateEnabled(autoUpdateToggle.isSelected());
+        });
+
+        row.add(lbl, BorderLayout.WEST);
+        row.add(autoUpdateToggle, BorderLayout.EAST);
+
+        panel.add(row);
         panel.add(Box.createVerticalStrut(8));
 
         return panel;
@@ -190,33 +204,71 @@ public class SettingsPanel extends JPanel {
 
     // ==================== API Key 操作 ====================
 
-    private void loadCurrentKey() {
-        showFullApiKey = pluginService.isShowFullApiKeyEnabled();
+    private void onViewKeyToggleClicked() {
+        if (showFullApiKey) {
+            applyApiKeyUiState(apiKeyConfiguredHint, false);
+            renderApiKeyDisplay();
+            return;
+        }
+
+        // 首次点击查看才请求后端，减少不必要的 API 调用。
+        if (!apiKeyLoaded) {
+            fetchApiKeyForReveal();
+            return;
+        }
+
+        if (currentApiKey == null || currentApiKey.isBlank()) {
+            renderApiKeyDisplay();
+            return;
+        }
+
+        applyApiKeyUiState(true, true);
+        renderApiKeyDisplay();
+    }
+
+    private void fetchApiKeyForReveal() {
         CommentGeneratorClient.checkApiKey(project)
                 .thenAccept(apiKey ->
                         ApplicationManager.getApplication().invokeLater(() -> {
-                            currentApiKey = apiKey;
+                            syncApiKeyCacheFromClient();
+                            if (currentApiKey == null || currentApiKey.isBlank()) {
+                                applyApiKeyUiState(false, false);
+                            } else {
+                                applyApiKeyUiState(true, true);
+                            }
                             renderApiKeyDisplay();
                         }))
                 .exceptionally(ex -> {
                     log.warn("查询 API Key 失败");
                     ApplicationManager.getApplication().invokeLater(() -> {
-                        currentApiKey = null;
                         currentKeyLabel.setText("查询失败");
                         currentKeyLabel.setForeground(JBColor.RED);
                         viewKeyBtn.setText("查看");
-                        viewKeyBtn.setEnabled(false);
+                        viewKeyBtn.setEnabled(true);
                     });
                     return null;
                 });
     }
 
     private void renderApiKeyDisplay() {
+        if (!apiKeyLoaded) {
+            if (apiKeyConfiguredHint) {
+                currentKeyLabel.setText(MASKED_API_KEY_TEXT);
+                currentKeyLabel.setForeground(JBColor.foreground());
+            } else {
+                currentKeyLabel.setText("未设置");
+                currentKeyLabel.setForeground(JBColor.GRAY);
+            }
+            viewKeyBtn.setText("查看");
+            viewKeyBtn.setEnabled(true);
+            return;
+        }
+
         if (currentApiKey == null || currentApiKey.isBlank()) {
             currentKeyLabel.setText("未设置");
             currentKeyLabel.setForeground(JBColor.GRAY);
             viewKeyBtn.setText("查看");
-            viewKeyBtn.setEnabled(false);
+            viewKeyBtn.setEnabled(true);
             return;
         }
 
@@ -238,8 +290,9 @@ public class SettingsPanel extends JPanel {
                 .thenRun(() -> ApplicationManager.getApplication().invokeLater(() -> {
                     saveKeyBtn.setEnabled(true);
                     newKeyField.setText("");
-                    loadCurrentKey();
-                    pluginService.notifyGlobalSettingsChanged();
+                    syncApiKeyCacheFromClient();
+                    applyApiKeyUiState(true, showFullApiKey);
+                    renderApiKeyDisplay();
                     Messages.showInfoMessage(project, "API Key 保存成功", "提示");
                 }))
                 .exceptionally(ex -> {
@@ -261,8 +314,9 @@ public class SettingsPanel extends JPanel {
         CommentGeneratorClient.deleteApiKey(project)
                 .thenRun(() -> ApplicationManager.getApplication().invokeLater(() -> {
                     deleteKeyBtn.setEnabled(true);
-                    loadCurrentKey();
-                    pluginService.notifyGlobalSettingsChanged();
+                    syncApiKeyCacheFromClient();
+                    applyApiKeyUiState(false, false);
+                    renderApiKeyDisplay();
                     Messages.showInfoMessage(project, "API Key 已删除", "提示");
                 }))
                 .exceptionally(ex -> {
@@ -282,9 +336,29 @@ public class SettingsPanel extends JPanel {
      * 响应跨项目全局配置变更，原位刷新当前设置页，避免重建面板导致闪烁。
      */
     public void onGlobalSettingsChanged() {
+        syncApiKeyCacheFromClient();
         showFullApiKey = pluginService.isShowFullApiKeyEnabled();
+        apiKeyConfiguredHint = pluginService.isApiKeyConfiguredHint();
+        if (autoUpdateToggle != null) {
+            suppressAutoUpdateToggleEvent = true;
+            try {
+                autoUpdateToggle.setSelected(pluginService.isAutoUpdateEnabled());
+            } finally {
+                suppressAutoUpdateToggleEvent = false;
+            }
+        }
         renderApiKeyDisplay();
-        loadCurrentKey();
+    }
+
+    private void syncApiKeyCacheFromClient() {
+        apiKeyLoaded = CommentGeneratorClient.isApiKeyLoaded();
+        currentApiKey = CommentGeneratorClient.getCachedApiKey();
+    }
+
+    private void applyApiKeyUiState(boolean configured, boolean showFull) {
+        apiKeyConfiguredHint = configured;
+        showFullApiKey = showFull;
+        pluginService.updateApiKeyUiState(configured, showFull);
     }
 
     private static JBLabel sectionHeader(String text) {
@@ -292,22 +366,6 @@ public class SettingsPanel extends JPanel {
         label.setFont(label.getFont().deriveFont(Font.BOLD, 14f));
         label.setAlignmentX(LEFT_ALIGNMENT);
         return label;
-    }
-
-    private static JPanel toggleRow(String label, String tooltip, boolean initialValue, Consumer<Boolean> onChange) {
-        JPanel row = new JPanel(new BorderLayout());
-        row.setOpaque(false);
-        row.setAlignmentX(LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
-        row.setToolTipText(tooltip);
-
-        JBLabel lbl = new JBLabel(label);
-        ToggleSwitch toggle = new ToggleSwitch(initialValue);
-        toggle.addActionListener(e -> onChange.accept(toggle.isSelected()));
-
-        row.add(lbl, BorderLayout.WEST);
-        row.add(toggle, BorderLayout.EAST);
-        return row;
     }
 
     private static String extractError(Throwable ex) {

@@ -10,7 +10,8 @@ import lombok.Getter;
 public class BackendException extends RuntimeException {
 
     private final ErrorCode errorCode;
-    /** 后端返回的原始 message */
+
+    // 后端返回的原始 message
     private final String serverMessage;
 
     public BackendException(ErrorCode errorCode, String serverMessage) {

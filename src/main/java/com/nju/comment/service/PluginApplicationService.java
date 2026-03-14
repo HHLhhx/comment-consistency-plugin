@@ -6,6 +6,7 @@ import com.intellij.openapi.components.Service;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.nju.comment.client.global.CommentGeneratorClient;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -18,33 +19,32 @@ import lombok.extern.slf4j.Slf4j;
 public final class PluginApplicationService implements Disposable {
 
     /**
-     * 广播全局认证状态变更到所有已打开项目。
+     * 在 UI 线程遍历所有已打开项目，并将动作分发到项目级服务。
      */
-    public void broadcastAuthStateChanged() {
+    private void dispatchToOpenProjects(Consumer<PluginProjectService> action) {
         ApplicationManager.getApplication().invokeLater(() -> {
             for (Project project : ProjectManager.getInstance().getOpenProjects()) {
                 if (project.isDisposed()) continue;
                 PluginProjectService service = project.getService(PluginProjectService.class);
                 if (service != null) {
-                    service.applyGlobalAuthState();
+                    action.accept(service);
                 }
             }
         });
     }
 
     /**
+     * 广播全局认证状态变更到所有已打开项目。
+     */
+    public void publishAuthStateChanged() {
+        dispatchToOpenProjects(PluginProjectService::syncAuthStateFromGlobal);
+    }
+
+    /**
      * 广播全局配置（模型/RAG/自动更新）变更到所有已打开项目。
      */
-    public void broadcastGlobalSettingsChanged() {
-        ApplicationManager.getApplication().invokeLater(() -> {
-            for (Project project : ProjectManager.getInstance().getOpenProjects()) {
-                if (project.isDisposed()) continue;
-                PluginProjectService service = project.getService(PluginProjectService.class);
-                if (service != null) {
-                    service.applyGlobalSettings();
-                }
-            }
-        });
+    public void publishGlobalSettingsChanged() {
+        dispatchToOpenProjects(PluginProjectService::syncSettingsFromGlobal);
     }
 
     @Override

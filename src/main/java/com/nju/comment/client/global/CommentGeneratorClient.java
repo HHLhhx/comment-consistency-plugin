@@ -31,18 +31,6 @@ import java.util.function.Consumer;
 
 /**
  * 全局注释生成客户端（静态单例）。包装 {@link PluginCommentClient}，对外提供业务级 API。
- * <p>
- * <b>异步策略说明</b>：
- * <ul>
- *   <li><b>generateCommentAsync</b> — 纯异步回调。LLM 推理耗时长（秒级），阻塞任何线程都不合理。</li>
- *   <li><b>login / register / saveApiKey / checkApiKey / deleteApiKey</b> — 返回 CompletableFuture，
- *       由 UI 层通过 {@code thenAccept/exceptionally} 链式消费，避免阻塞 EDT。</li>
- *   <li><b>getAvailableModels</b> — 同步阻塞（内部 {@code future.get()}）。
- *       调用方始终在后台线程池中运行（{@code executeOnPooledThread}），
- *       且返回值需直接写入 {@code modelsList} 静态状态，链式回调反而增加复杂度。</li>
- *   <li><b>logout</b> — 发后即忘（fire-and-forget）。无需等待后端确认，本地立即清除凭证。</li>
- *   <li><b>cancelForMethod</b> — 同步触发取消，忽略返回值。取消是尽力而为语义，不需要等待确认。</li>
- * </ul>
  */
 @Slf4j
 public class CommentGeneratorClient {
@@ -58,6 +46,9 @@ public class CommentGeneratorClient {
     private static final Map<String, InFlightRecord> IN_FLIGHT_BY_METHOD = new ConcurrentHashMap<>();
     private static final String FINGERPRINT_DELIM = "\u0001";
 
+    /**
+     * 可用模型列表
+     */
     @Getter
     private static volatile List<String> modelsList;
 
@@ -72,6 +63,20 @@ public class CommentGeneratorClient {
      */
     @Getter
     private static volatile boolean ragEnabled = false;
+
+    /**
+     * 应用级 API Key 缓存
+     */
+    @Getter
+    private static volatile String cachedApiKey = null;
+
+    /**
+     * API Key 是否已从后端加载过
+     */
+    @Getter
+    private static volatile boolean apiKeyLoaded = false;
+
+    // ========================== 客户端生命周期 ==========================
 
     /**
      * 初始化客户端
@@ -102,6 +107,34 @@ public class CommentGeneratorClient {
             log.info("CommentGeneratorClient 初始化成功");
         }
     }
+
+    /**
+     * 关闭客户端，释放资源
+     */
+    public static void shutdown() {
+        synchronized (LOCK) {
+            // 取消所有在途请求
+            IN_FLIGHT_BY_METHOD.keySet().forEach(CommentGeneratorClient::cancelByMapKey);
+            IN_FLIGHT_BY_METHOD.clear();
+            if (client != null) {
+                log.info("关闭 CommentGeneratorClient");
+                client.shutdown();
+                client = null;
+            }
+        }
+    }
+
+    /**
+     * 初始化检查
+     */
+    private static void initCheck() {
+        if (client == null) {
+            log.info("CommentGeneratorClient 未初始化，正在初始化默认配置");
+            init(null);
+        }
+    }
+
+    // ========================== 注释业务 ==========================
 
     /**
      * 按方法维度的生成注释。异步模式，不阻塞调用线程。
@@ -331,16 +364,6 @@ public class CommentGeneratorClient {
     }
 
     /**
-     * 初始化检查
-     */
-    private static void initCheck() {
-        if (client == null) {
-            log.info("CommentGeneratorClient 未初始化，正在初始化默认配置");
-            init(null);
-        }
-    }
-
-    /**
      * 设置选定模型
      *
      * @param selectedModel 选定模型名称
@@ -360,6 +383,8 @@ public class CommentGeneratorClient {
         CommentGeneratorClient.ragEnabled = enabled;
     }
 
+    // ========================== 认证 ==========================
+
     /**
      * 登录
      */
@@ -368,6 +393,8 @@ public class CommentGeneratorClient {
         return client.login(new LoginRequest(username, password)).whenComplete((r, ex) -> {
             if (ex == null) {
                 AuthManager.saveAuth(r.getToken(), username);
+                cachedApiKey = null;
+                apiKeyLoaded = false;
             }
         });
     }
@@ -380,6 +407,8 @@ public class CommentGeneratorClient {
         return client.register(new RegisterRequest(username, password, phone)).whenComplete((r, ex) -> {
             if (ex == null) {
                 AuthManager.saveAuth(r.getToken(), username);
+                cachedApiKey = null;
+                apiKeyLoaded = false;
             }
         });
     }
@@ -394,8 +423,12 @@ public class CommentGeneratorClient {
             }
         });
         AuthManager.clearAuth();
+        cachedApiKey = null;
+        apiKeyLoaded = false;
         log.info("已登出");
     }
+
+    // ========================== 用户设置 ==========================
 
     /**
      * 保存 API Key
@@ -403,7 +436,10 @@ public class CommentGeneratorClient {
     public static CompletableFuture<Void> saveApiKey(String apiKey, Project project) {
         initCheck();
         return client.saveApiKey(new ApiKeyRequest(apiKey)).whenComplete((r, ex) -> {
-            if (ex != null) {
+            if (ex == null) {
+                cachedApiKey = apiKey;
+                apiKeyLoaded = true;
+            } else {
                 Throwable cause = ex.getCause();
                 if (cause instanceof BackendException be) {
                     ErrorHandler.handle(be, project);
@@ -415,12 +451,15 @@ public class CommentGeneratorClient {
     }
 
     /**
-     * 查询 API Key（返回脱敏后的 Key，未设置时返回 null）
+     * 查询 API Key（返回完整 key，未设置时返回 null）
      */
     public static CompletableFuture<String> checkApiKey(Project project) {
         initCheck();
         return client.checkApiKey().whenComplete((r, ex) -> {
-            if (ex != null) {
+            if (ex == null) {
+                cachedApiKey = r;
+                apiKeyLoaded = true;
+            } else {
                 Throwable cause = ex.getCause();
                 if (cause instanceof BackendException be) {
                     ErrorHandler.handle(be, project);
@@ -437,7 +476,10 @@ public class CommentGeneratorClient {
     public static CompletableFuture<Void> deleteApiKey(Project project) {
         initCheck();
         return client.deleteApiKey().whenComplete((r, ex) -> {
-            if (ex != null) {
+            if (ex == null) {
+                cachedApiKey = null;
+                apiKeyLoaded = true;
+            } else {
                 Throwable cause = ex.getCause();
                 if (cause instanceof BackendException be) {
                     ErrorHandler.handle(be, project);
@@ -446,21 +488,5 @@ public class CommentGeneratorClient {
                 }
             }
         });
-    }
-
-    /**
-     * 关闭客户端，释放资源
-     */
-    public static void shutdown() {
-        synchronized (LOCK) {
-            // 取消所有在途请求
-            IN_FLIGHT_BY_METHOD.keySet().forEach(CommentGeneratorClient::cancelByMapKey);
-            IN_FLIGHT_BY_METHOD.clear();
-            if (client != null) {
-                log.info("关闭 CommentGeneratorClient");
-                client.shutdown();
-                client = null;
-            }
-        }
     }
 }

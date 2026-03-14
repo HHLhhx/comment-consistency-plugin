@@ -43,7 +43,8 @@ public enum ErrorCode {
     private final int code;
     private final String defaultMessage;
     private final ErrorLevel level;
-    /** 是否允许用户重试 */
+
+    // 是否允许用户重试
     private final boolean retryable;
 
     ErrorCode(int code, String defaultMessage, ErrorLevel level, boolean retryable) {

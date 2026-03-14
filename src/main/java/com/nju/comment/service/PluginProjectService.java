@@ -16,6 +16,7 @@ import com.nju.comment.pojo.MethodStatus;
 
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -235,6 +236,8 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
+    // ==================== 用户认证与设置同步 ====================
+
     /**
      * 用户登录后调用：恢复持久化设置，启动自动化任务。
      */
@@ -265,98 +268,6 @@ public final class PluginProjectService implements Disposable {
     }
 
     /**
-     * 接收全局认证状态变更事件，并将当前项目同步到最新账号状态。
-     */
-    public void applyGlobalAuthState() {
-        if (AuthManager.isLoggedIn()) {
-            onUserLogin();
-        } else {
-            onUserLogout();
-        }
-        Runnable cb = onAuthStateChangedCallback;
-        if (cb != null) {
-            ApplicationManager.getApplication().invokeLater(cb);
-        }
-    }
-
-    /**
-     * 应用全局配置到当前项目（由应用级广播触发）。
-     */
-    public void applyGlobalSettings() {
-        if (!AuthManager.isLoggedIn()) return;
-        synchronized (scheduleLock) {
-            if (userSettings == null) {
-                String username = AuthManager.getUsername();
-                if (username == null || username.isBlank()) return;
-                userSettings = new UserSettingsManager(username);
-            }
-            applySettingsFromStoreLocked();
-        }
-        Runnable cb = onGlobalSettingsChangedCallback;
-        if (cb != null) {
-            ApplicationManager.getApplication().invokeLater(cb);
-        }
-    }
-
-    /**
-     * 更新全局选中模型并广播到所有项目。
-     */
-    public void updateSelectedModel(String model) {
-        if (model == null || model.isBlank()) return;
-        synchronized (scheduleLock) {
-            if (userSettings == null) return;
-            userSettings.setSelectedModel(model);
-        }
-        broadcastGlobalSettingsChanged();
-    }
-
-    /**
-     * 更新全局 RAG 开关并广播到所有项目。
-     */
-    public void updateRagEnabled(boolean enabled) {
-        synchronized (scheduleLock) {
-            if (userSettings == null) return;
-            userSettings.setRagEnabled(enabled);
-        }
-        broadcastGlobalSettingsChanged();
-    }
-
-    /**
-     * 更新全局自动更新开关并广播到所有项目。
-     */
-    public void updateAutoUpdateEnabled(boolean enabled) {
-        synchronized (scheduleLock) {
-            if (userSettings == null) return;
-            userSettings.setAutoUpdateEnabled(enabled);
-        }
-        broadcastGlobalSettingsChanged();
-    }
-
-    /**
-     * 更新是否显示完整 API Key 的全局开关并广播到所有项目。
-     */
-    public void updateShowFullApiKeyEnabled(boolean enabled) {
-        synchronized (scheduleLock) {
-            if (userSettings == null) return;
-            userSettings.setShowFullApiKeyEnabled(enabled);
-        }
-        broadcastGlobalSettingsChanged();
-    }
-
-    public boolean isShowFullApiKeyEnabled() {
-        synchronized (scheduleLock) {
-            return userSettings != null && userSettings.isShowFullApiKeyEnabled();
-        }
-    }
-
-    /**
-     * 主动触发一次全局配置广播（用于 API Key 保存/删除后跨项目刷新）。
-     */
-    public void notifyGlobalSettingsChanged() {
-        broadcastGlobalSettingsChanged();
-    }
-
-    /**
      * 服务端判定凭证失效时调用：执行登出 + 切换到登录界面。
      */
     public void forceLogout() {
@@ -376,6 +287,42 @@ public final class PluginProjectService implements Disposable {
     }
 
     /**
+     * 更新全局选中模型并广播到所有项目。
+     */
+    public void updateSelectedModel(String model) {
+        if (model == null || model.isBlank()) return;
+        updateUserSettingsAndBroadcast(settings -> settings.setSelectedModel(model));
+    }
+
+    /**
+     * 更新全局 RAG 开关并广播到所有项目。
+     */
+    public void updateRagEnabled(boolean enabled) {
+        updateUserSettingsAndBroadcast(settings -> settings.setRagEnabled(enabled));
+    }
+
+    /**
+     * 更新全局自动更新开关并广播到所有项目。
+     */
+    public void updateAutoUpdateEnabled(boolean enabled) {
+        updateUserSettingsAndBroadcast(settings -> settings.setAutoUpdateEnabled(enabled));
+    }
+
+    public boolean isShowFullApiKeyEnabled() {
+        synchronized (scheduleLock) {
+            return userSettings != null && userSettings.isShowFullApiKeyEnabled();
+        }
+    }
+
+    public boolean isApiKeyConfiguredHint() {
+        synchronized (scheduleLock) {
+            return userSettings != null && userSettings.isApiKeyConfiguredHint();
+        }
+    }
+
+
+    // ======================= 设置持久化 ====================
+    /**
      * 保存当前运行时设置到持久化存储。
      */
     public void saveCurrentSettings() {
@@ -385,7 +332,7 @@ public final class PluginProjectService implements Disposable {
     }
 
     /**
-     * 必须在持有 scheduleLock 时调用
+     * 保存当前运行时设置到持久化存储，必须在持有 scheduleLock 时调用
      */
     private void saveCurrentSettingsLocked() {
         if (userSettings == null) return;
@@ -395,7 +342,7 @@ public final class PluginProjectService implements Disposable {
     }
 
     /**
-     * 必须在持有 scheduleLock 时调用
+     * 应用持久化存储的设置到当前运行时状态，必须在持有 scheduleLock 时调用
      */
     private void applySettingsFromStoreLocked() {
         String model = userSettings.getSelectedModel();
@@ -406,12 +353,75 @@ public final class PluginProjectService implements Disposable {
         setAutoUpdateEnabledLocked(userSettings.isAutoUpdateEnabled());
     }
 
-    private void broadcastGlobalSettingsChanged() {
+
+    // ====================== 全局事件同步 ====================
+    /**
+     * 接收全局认证状态变更事件，并将当前项目同步到最新账号状态。
+     */
+    public void syncAuthStateFromGlobal() {
+        if (AuthManager.isLoggedIn()) {
+            onUserLogin();
+        } else {
+            onUserLogout();
+        }
+        invokeUiCallback(onAuthStateChangedCallback);
+    }
+
+    /**
+     * 应用全局配置到当前项目（由应用级广播触发）。
+     */
+    public void syncSettingsFromGlobal() {
+        if (!AuthManager.isLoggedIn()) return;
+        synchronized (scheduleLock) {
+            if (userSettings == null) {
+                String username = AuthManager.getUsername();
+                if (username == null || username.isBlank()) return;
+                userSettings = new UserSettingsManager(username);
+            }
+            applySettingsFromStoreLocked();
+        }
+        invokeUiCallback(onGlobalSettingsChangedCallback);
+    }
+
+    /**
+     * 在 UI 线程执行回调，供全局事件处理后通知 UI 层更新界面状态
+     */
+    private void invokeUiCallback(Runnable callback) {
+        if (callback != null) {
+            ApplicationManager.getApplication().invokeLater(callback);
+        }
+    }
+
+    /**
+     * 更新用户设置并广播全局设置变更事件，供 UI 层调用
+     */
+    private void updateUserSettingsAndBroadcast(Consumer<UserSettingsManager> updater) {
+        synchronized (scheduleLock) {
+            if (userSettings == null) return;
+            updater.accept(userSettings);
+        }
+        publishGlobalSettingsChanged();
+    }
+
+    /**
+     * 通过应用级服务广播全局设置变更事件，通知其他项目同步最新设置。
+     */
+    private void publishGlobalSettingsChanged() {
         PluginApplicationService appService =
                 ApplicationManager.getApplication().getService(PluginApplicationService.class);
         if (appService != null) {
-            appService.broadcastGlobalSettingsChanged();
+            appService.publishGlobalSettingsChanged();
         }
+    }
+
+    /**
+     * 统一更新 API Key 相关 UI 状态（是否已配置 + 是否显示完整）并广播。
+     */
+    public void updateApiKeyUiState(boolean configured, boolean showFull) {
+        updateUserSettingsAndBroadcast(settings -> {
+            settings.setApiKeyConfiguredHint(configured);
+            settings.setShowFullApiKeyEnabled(showFull);
+        });
     }
 
     // ==================== 委托方法 ====================
