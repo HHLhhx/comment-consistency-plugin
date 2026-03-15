@@ -13,4 +13,5 @@ import lombok.NoArgsConstructor;
 public class GenerateOptions {
     String modelName;
     CommentReqTag tag;
+    int ragExampleNum;
 }

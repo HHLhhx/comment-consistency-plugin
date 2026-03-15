@@ -65,6 +65,12 @@ public class CommentGeneratorClient {
     private static volatile boolean ragEnabled = false;
 
     /**
+     * RAG 示例数量（1-5）
+     */
+    @Getter
+    private static volatile int ragExampleNum = 3;
+
+    /**
      * 应用级 API Key 缓存
      */
     @Getter
@@ -199,6 +205,7 @@ public class CommentGeneratorClient {
                         .requestId(requestId)
                         .timeoutMs(LLM_TIMEOUT.toMillis())
                         .tag(options.getTag())
+                        .ragExampleNum(options.getRagExampleNum())
                         .build();
 
                 CompletableFuture<CommentResponse> future = client.generateComment(req);
@@ -383,6 +390,15 @@ public class CommentGeneratorClient {
         CommentGeneratorClient.ragEnabled = enabled;
     }
 
+    /**
+     * 设置 RAG 示例数量（限制在 1-5）
+     */
+    public static void setRagExampleNum(int count) {
+        int normalized = Math.max(1, Math.min(5, count));
+        log.info("设置 RAG 示例数量: {}", normalized);
+        CommentGeneratorClient.ragExampleNum = normalized;
+    }
+
     // ========================== 认证 ==========================
 
     /**
@@ -466,6 +482,21 @@ public class CommentGeneratorClient {
                 } else {
                     log.error("查询 API Key 请求失败", ex);
                 }
+            }
+        });
+    }
+
+    /**
+     * 静默查询 API Key（仅用于启动/页面首次展示时对齐状态，不弹错误提示）。
+     */
+    public static CompletableFuture<String> checkApiKeySilently() {
+        initCheck();
+        return client.checkApiKey().whenComplete((r, ex) -> {
+            if (ex == null) {
+                cachedApiKey = r;
+                apiKeyLoaded = true;
+            } else {
+                log.warn("静默查询 API Key 失败", ex);
             }
         });
     }

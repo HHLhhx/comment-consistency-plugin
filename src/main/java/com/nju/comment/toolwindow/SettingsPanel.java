@@ -39,6 +39,7 @@ public class SettingsPanel extends JPanel {
     private boolean apiKeyLoaded;
     private boolean apiKeyConfiguredHint;
     private boolean showFullApiKey;
+    private volatile boolean apiKeyHintSyncing;
     private static final String MASKED_API_KEY_TEXT = "********************************";
 
     public SettingsPanel(Project project, Runnable onBack) {
@@ -169,6 +170,7 @@ public class SettingsPanel extends JPanel {
         apiKeyConfiguredHint = pluginService.isApiKeyConfiguredHint();
         syncApiKeyCacheFromClient();
         renderApiKeyDisplay();
+        syncApiKeyHintIfNeeded();
         return panel;
     }
 
@@ -348,6 +350,27 @@ public class SettingsPanel extends JPanel {
             }
         }
         renderApiKeyDisplay();
+        syncApiKeyHintIfNeeded();
+    }
+
+    private void syncApiKeyHintIfNeeded() {
+        if (apiKeyHintSyncing || apiKeyLoaded || apiKeyConfiguredHint) {
+            return;
+        }
+        apiKeyHintSyncing = true;
+        currentKeyLabel.setText("检测中...");
+        currentKeyLabel.setForeground(JBColor.GRAY);
+        viewKeyBtn.setEnabled(false);
+
+        CommentGeneratorClient.checkApiKeySilently()
+                .thenAccept(apiKey -> ApplicationManager.getApplication().invokeLater(() -> {
+                    syncApiKeyCacheFromClient();
+                    boolean configured = currentApiKey != null && !currentApiKey.isBlank();
+                    boolean showFull = configured && showFullApiKey;
+                    applyApiKeyUiState(configured, showFull);
+                    renderApiKeyDisplay();
+                }))
+                .whenComplete((r, ex) -> apiKeyHintSyncing = false);
     }
 
     private void syncApiKeyCacheFromClient() {

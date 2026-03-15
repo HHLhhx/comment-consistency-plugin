@@ -302,6 +302,21 @@ public final class PluginProjectService implements Disposable {
     }
 
     /**
+     * 更新全局 RAG 示例数量（1-5）并广播到所有项目。
+     */
+    public void updateRagExampleNum(int count) {
+        int normalized = Math.max(1, Math.min(5, count));
+        updateUserSettingsAndBroadcast(settings -> settings.setRagExampleNum(normalized));
+    }
+
+    public int getRagExampleNum() {
+        synchronized (scheduleLock) {
+            if (userSettings == null) return 3;
+            return userSettings.getRagExampleNum();
+        }
+    }
+
+    /**
      * 更新全局自动更新开关并广播到所有项目。
      */
     public void updateAutoUpdateEnabled(boolean enabled) {
@@ -338,6 +353,7 @@ public final class PluginProjectService implements Disposable {
         if (userSettings == null) return;
         userSettings.setSelectedModel(CommentGeneratorClient.getSelectedModel());
         userSettings.setRagEnabled(CommentGeneratorClient.isRagEnabled());
+        userSettings.setRagExampleNum(CommentGeneratorClient.getRagExampleNum());
         userSettings.setAutoUpdateEnabled(autoUpdateTask != null && !autoUpdateTask.isCancelled());
     }
 
@@ -350,6 +366,7 @@ public final class PluginProjectService implements Disposable {
             CommentGeneratorClient.setSelectedModel(model);
         }
         CommentGeneratorClient.setRagEnabled(userSettings.isRagEnabled());
+        CommentGeneratorClient.setRagExampleNum(userSettings.getRagExampleNum());
         setAutoUpdateEnabledLocked(userSettings.isAutoUpdateEnabled());
     }
 

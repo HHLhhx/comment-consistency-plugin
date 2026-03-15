@@ -238,6 +238,7 @@ public class MethodRefreshService {
                     GenerateOptions options = GenerateOptions.builder()
                             .modelName(CommentGeneratorClient.getSelectedModel())
                             .tag(tag)
+                            .ragExampleNum(CommentGeneratorClient.getRagExampleNum())
                             .build();
 
                     CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {

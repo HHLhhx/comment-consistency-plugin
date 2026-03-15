@@ -44,6 +44,11 @@ public class MainPanel extends JPanel implements Disposable {
     });
     private Set<String> lastSeenSignatures = null;
     private boolean suppressModelAction = false;
+    private boolean suppressRagToggleAction = false;
+    private boolean suppressRagExampleChange = false;
+    private ToggleSwitch ragToggle;
+    private JPanel ragExampleHolder;
+    private ComboBox<Integer> ragExampleCombo;
 
 
     public MainPanel(Project project, Runnable onOpenSettings) {
@@ -127,10 +132,44 @@ public class MainPanel extends JPanel implements Disposable {
         leftRow2.setOpaque(false);
 
         JBLabel ragLabel = new JBLabel("RAG");
-        ToggleSwitch ragToggle = new ToggleSwitch(CommentGeneratorClient.isRagEnabled());
-        ragToggle.addActionListener(e -> pluginService.updateRagEnabled(ragToggle.isSelected()));
+        ragToggle = new ToggleSwitch(CommentGeneratorClient.isRagEnabled());
+        ragToggle.addActionListener(e -> {
+            if (suppressRagToggleAction) return;
+            boolean enabled = ragToggle.isSelected();
+            applyRagExampleVisibility(enabled);
+            pluginService.updateRagEnabled(enabled);
+        });
         leftRow2.add(ragLabel);
         leftRow2.add(ragToggle);
+
+        JPanel ragExamplePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        ragExamplePanel.setOpaque(false);
+        ragExamplePanel.add(new JBLabel("示例数"));
+
+        ragExampleCombo = new ComboBox<>(new Integer[]{1, 2, 3, 4, 5});
+        ragExampleCombo.setPreferredSize(new Dimension(60, 24));
+        ragExampleCombo.setSelectedItem(normalizeRagExampleNum(pluginService.getRagExampleNum()));
+        ragExampleCombo.addActionListener(e -> {
+            if (suppressRagExampleChange) return;
+            Integer selected = (Integer) ragExampleCombo.getSelectedItem();
+            int value = normalizeRagExampleNum(selected == null ? 3 : selected);
+            pluginService.updateRagExampleNum(value);
+        });
+        ragExamplePanel.add(ragExampleCombo);
+
+        JPanel ragExamplePlaceholder = new JPanel();
+        ragExamplePlaceholder.setOpaque(false);
+        Dimension ragExampleSize = ragExamplePanel.getPreferredSize();
+        ragExamplePlaceholder.setPreferredSize(ragExampleSize);
+        ragExamplePlaceholder.setMinimumSize(ragExampleSize);
+        ragExamplePlaceholder.setMaximumSize(ragExampleSize);
+
+        ragExampleHolder = new JPanel(new CardLayout());
+        ragExampleHolder.setOpaque(false);
+        ragExampleHolder.add(ragExamplePanel, "visible");
+        ragExampleHolder.add(ragExamplePlaceholder, "hidden");
+        applyRagExampleVisibility(ragToggle.isSelected());
+        leftRow2.add(ragExampleHolder);
 
         JPanel rightRow2 = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         rightRow2.setOpaque(false);
@@ -263,6 +302,53 @@ public class MainPanel extends JPanel implements Disposable {
                 }
             });
         });
+    }
+
+    public void onGlobalSettingsChanged() {
+        suppressModelAction = true;
+        try {
+            String selected = CommentGeneratorClient.getSelectedModel();
+            if (selected != null && comboBoxModel.getSize() > 0) {
+                comboBoxModel.setSelectedItem(selected);
+            }
+        } finally {
+            suppressModelAction = false;
+        }
+
+        if (ragToggle != null) {
+            suppressRagToggleAction = true;
+            try {
+                ragToggle.setSelected(CommentGeneratorClient.isRagEnabled());
+            } finally {
+                suppressRagToggleAction = false;
+            }
+        }
+
+        applyRagExampleVisibility(CommentGeneratorClient.isRagEnabled());
+
+        if (ragExampleCombo != null) {
+            int value = normalizeRagExampleNum(pluginService.getRagExampleNum());
+            suppressRagExampleChange = true;
+            try {
+                ragExampleCombo.setSelectedItem(value);
+            } finally {
+                suppressRagExampleChange = false;
+            }
+        }
+    }
+
+    private static int normalizeRagExampleNum(int value) {
+        return Math.max(1, Math.min(5, value));
+    }
+
+    private void applyRagExampleVisibility(boolean visible) {
+        if (ragExampleHolder == null) return;
+        LayoutManager layout = ragExampleHolder.getLayout();
+        if (layout instanceof CardLayout cardLayout) {
+            cardLayout.show(ragExampleHolder, visible ? "visible" : "hidden");
+        }
+        ragExampleHolder.revalidate();
+        ragExampleHolder.repaint();
     }
 
     // ==================== 生命周期 ====================

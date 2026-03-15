@@ -34,6 +34,16 @@ public class UserSettingsManager {
         props.setValue(keyPrefix + "rag", enabled, false);
     }
 
+    public int getRagExampleNum() {
+        int value = props.getInt(keyPrefix + "ragExampleNum", 3);
+        return Math.max(1, Math.min(5, value));
+    }
+
+    public void setRagExampleNum(int count) {
+        int normalized = Math.max(1, Math.min(5, count));
+        props.setValue(keyPrefix + "ragExampleNum", normalized, 3);
+    }
+
     public boolean isAutoUpdateEnabled() {
         return props.getBoolean(keyPrefix + "autoUpdate", false);
     }

@@ -24,4 +24,6 @@ public class CommentRequest {
     private Long timeoutMs;
 
     private CommentReqTag tag;
+
+    private int ragExampleNum;
 }

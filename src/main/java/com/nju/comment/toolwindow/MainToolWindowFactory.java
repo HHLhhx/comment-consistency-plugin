@@ -62,7 +62,7 @@ public class MainToolWindowFactory implements ToolWindowFactory {
         // 注册配置状态变更回调，模型/RAG/自动更新变更后刷新当前界面以反映最新值
         service.setOnGlobalSettingsChangedCallback(() -> {
             if (!AuthManager.isLoggedIn()) return;
-            applySettingsToCurrentView(root, project);
+            applySettingsToCurrentView(root);
         });
     }
 
@@ -103,11 +103,11 @@ public class MainToolWindowFactory implements ToolWindowFactory {
     /**
      * 将全局配置应用到当前页面，设置页优先原位刷新以避免闪烁。
      */
-    private static void applySettingsToCurrentView(JPanel root, Project project) {
+    private static void applySettingsToCurrentView(JPanel root) {
         if (root.getComponentCount() == 0) return;
         Component current = root.getComponent(0);
         if (current instanceof MainPanel) {
-            showMain(root, project);
+            ((MainPanel) current).onGlobalSettingsChanged();
         } else if (current instanceof SettingsPanel) {
             ((SettingsPanel) current).onGlobalSettingsChanged();
         }
