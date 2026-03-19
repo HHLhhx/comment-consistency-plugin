@@ -45,6 +45,11 @@ public final class MethodValidationUtil {
             return false;
         }
 
+        if (containingClass.getQualifiedName() == null) {
+            log.warn("方法所在类缺少有效限定名，跳过：{}", MethodRecordUtil.buildMethodKey(method));
+            return false;
+        }
+
         if (!isMethodNameValid(method, containingClass)) {
             return false;
         }
@@ -537,12 +542,20 @@ public final class MethodValidationUtil {
      */
     private static boolean isReturnStatementValid(PsiMethod method) {
         String methodKey = MethodRecordUtil.buildMethodKey(method);
+
+        // Interface/abstract/native declarations usually have no body and should not be checked here.
+        PsiCodeBlock body = method.getBody();
+        if (body == null) {
+            return true;
+        }
+
         PsiType returnType = method.getReturnType();
         if (returnType == null || (returnType instanceof PsiPrimitiveType && "void".equals(returnType.getCanonicalText()))) {
             return true;
         }
 
         Collection<PsiReturnStatement> returns = PsiTreeUtil.findChildrenOfType(method, PsiReturnStatement.class);
+        returns = returns.stream().filter(rs -> isReturnOwnedByMethod(method, rs)).toList();
         if (returns.isEmpty()) {
             Collection<PsiThrowStatement> throwsStmts = PsiTreeUtil.findChildrenOfType(method, PsiThrowStatement.class);
             if (throwsStmts.isEmpty()) {
@@ -558,12 +571,26 @@ public final class MethodValidationUtil {
             }
             PsiExpression rv = rs.getReturnValue();
             if (rv == null) {
-                log.warn("非 void 方法存在空 return 语句，跳过：{}", methodKey);
+                log.warn("非 void 方法存在空 return 语句，跳过：{}，return文本='{}'", methodKey, rs.getText());
                 return false;
             }
         }
 
         return true;
+    }
+
+    /**
+     * Keep only return statements that belong to the current method body.
+     * Excludes returns in local/anonymous classes and lambda expressions.
+     */
+    private static boolean isReturnOwnedByMethod(PsiMethod method, PsiReturnStatement rs) {
+        PsiMethod ownerMethod = PsiTreeUtil.getParentOfType(rs, PsiMethod.class);
+        if (ownerMethod != method) {
+            return false;
+        }
+
+        PsiLambdaExpression lambdaOwner = PsiTreeUtil.getParentOfType(rs, PsiLambdaExpression.class);
+        return lambdaOwner == null;
     }
 
     /**

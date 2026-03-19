@@ -48,14 +48,14 @@ https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
             text="Generate Comment For This Method"
             description="Generate method comment by backend">
             <add-to-group group-id="EditorPopupMenu" anchor="last" />
-            <keyboard-shortcut first-keystroke="ctrl shift alt G" keymap="$default" />
+            <keyboard-shortcut first-keystroke="ctrl alt G" keymap="$default" />
         </action>
         <action id="CommentGenerator.UpdateFromMethod"
             class="com.nju.comment.action.UpdateCommentOnMethodAction"
             text="Update Comment For This Method"
             description="Update method comment by backend">
             <add-to-group group-id="EditorPopupMenu" anchor="last" />
-            <keyboard-shortcut first-keystroke="ctrl shift alt U" keymap="$default" />
+            <keyboard-shortcut first-keystroke="ctrl alt U" keymap="$default" />
         </action>
         <action id="CommentGenerator.UpdateFromFile"
             class="com.nju.comment.action.UpdateCommentOnFileAction"

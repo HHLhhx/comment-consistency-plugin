@@ -12,6 +12,7 @@ import com.intellij.psi.PsiMethod;
 import com.nju.comment.service.AuthManager;
 import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.service.PluginProjectService;
+import com.nju.comment.util.MethodValidationUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -59,6 +60,10 @@ public class CommentGutterIconProvider implements LineMarkerProvider {
 
         if (!(element instanceof PsiIdentifier)) return null;
         if (!(element.getParent() instanceof PsiMethod method)) return null;
+
+        if (!MethodValidationUtil.isValid(method)) {
+            return null;
+        }
 
         Project project = method.getProject();
         PluginProjectService service = project.getService(PluginProjectService.class);

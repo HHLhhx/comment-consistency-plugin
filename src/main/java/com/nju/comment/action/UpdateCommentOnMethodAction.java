@@ -10,6 +10,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.nju.comment.service.AuthManager;
 import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.service.PluginProjectService;
+import com.nju.comment.util.MethodValidationUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
@@ -40,6 +41,11 @@ public class UpdateCommentOnMethodAction extends AnAction {
         int offset = editor.getCaretModel().getOffset();
         PsiElement element = ReadAction.compute(() -> psiFile.findElementAt(offset));
         PsiMethod method = ReadAction.compute(() -> PsiTreeUtil.getParentOfType(element, PsiMethod.class));
+
+        if (!MethodValidationUtil.isValid(method)) {
+            return;
+        }
+
         if (method == null
                 || MethodStatus.UNCHANGED.equals(service.preCheckChange(method))
                 || MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(service.preCheckChange(method))) {
@@ -86,6 +92,11 @@ public class UpdateCommentOnMethodAction extends AnAction {
                 }
             }
             PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
+
+            if (!MethodValidationUtil.isValid(method)) {
+                return false;
+            }
+
             return method != null
                     && !MethodStatus.UNCHANGED.equals(service.preCheckChange(method))
                     && !MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(service.preCheckChange(method));

@@ -13,6 +13,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.nju.comment.service.AuthManager;
 import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.service.PluginProjectService;
+import com.nju.comment.util.MethodValidationUtil;
 import org.jetbrains.annotations.NotNull;
 
 public class GenerateCommentOnMethodAction extends AnAction {
@@ -39,6 +40,10 @@ public class GenerateCommentOnMethodAction extends AnAction {
         PsiElement element = ReadAction.compute(() -> psiFile.findElementAt(offset));
         PsiMethod method = ReadAction.compute(() -> PsiTreeUtil.getParentOfType(element, PsiMethod.class));
         if (method == null) {
+            return;
+        }
+
+        if (!MethodValidationUtil.isValid(method)) {
             return;
         }
 
@@ -76,6 +81,10 @@ public class GenerateCommentOnMethodAction extends AnAction {
             }
             PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
             if (method == null) return false;
+
+            if (!MethodValidationUtil.isValid(method)) {
+                return false;
+            }
 
             Project project = e.getProject();
             if (project == null) return false;
