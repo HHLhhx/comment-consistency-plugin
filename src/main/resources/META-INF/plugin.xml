@@ -21,15 +21,16 @@ https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
          Guidelines:
     https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
-        <p>本项目旨在实现一款面向开发者工作流的即时工具。</p>
-        <h4>功能特性：</h4>
+        <p>Comment Consistency is an in-editor assistant that keeps Java comments aligned with implementation logic in real time.</p>
+        <p>This project aims to implement an out-of-the-box tool for developer workflows.</p>
+        <h4>FEATURES:</h4>
         <ul>
-            <li>在代码编写过程中主动检测注释与实现逻辑的语义不一致</li>
-            <li>集成大型语言模型，提供注释一致性问题的智能修复建议</li>
-            <li>从源头保障软件文档质量，降低注释与代码偏离风险</li>
-            <li>提升团队开发效率与后续维护可读性</li>
+            <li>Actively detect semantic inconsistencies between comments and implementation logic during code writing</li>
+            <li>Integrate large language models to provide intelligent fixes for annotation consistency issues</li>
+            <li>Ensure the quality of software documentation from the source and reduce the risk of comments and code deviations</li>
+            <li>Improve team development efficiency and readability for subsequent maintenance</li>
         </ul>
-        <p><strong>支持：</strong>如需反馈问题，请前往 <a href="https://github.com/HHLhhx/comment-consistency-plugin/issues">GitHub Issues</a>。</p>
+        <p><strong>support: </strong>for feedback questions go to <a href="https://github.com/HHLhhx/comment-consistency-plugin/issues">GitHub Issues</a>。</p>
     ]]></description>
 
     <change-notes><![CDATA[
