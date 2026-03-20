@@ -8,10 +8,8 @@ group = "com.nju"
 version = "1.0-SNAPSHOT"
 
 repositories {
-    // mavenCentral()
-    maven {
-        url = uri("https://maven.aliyun.com/repository/public")
-    }
+    mavenCentral()
+    gradlePluginPortal()
     intellijPlatform {
         defaultRepositories()
     }
@@ -44,10 +42,12 @@ intellijPlatform {
         ideaVersion {
             sinceBuild = "251"
         }
+    }
 
-        changeNotes = """
-            Initial version
-        """.trimIndent()
+    pluginVerification {
+        ides {
+            create("IC", "2025.1.4.1")
+        }
     }
 
     signing {
@@ -58,6 +58,7 @@ intellijPlatform {
 
     publishing {
         token.set(System.getenv("PUBLISH_TOKEN"))
+        channels.set(listOf("beta"))
     }
 }
 

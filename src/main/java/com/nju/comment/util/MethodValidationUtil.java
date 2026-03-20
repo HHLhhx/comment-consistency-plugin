@@ -50,6 +50,10 @@ public final class MethodValidationUtil {
             return false;
         }
 
+        if (isInterfaceOrAbstract(method, containingClass)) {
+            return false;
+        }
+
         if (!isMethodNameValid(method, containingClass)) {
             return false;
         }
@@ -99,6 +103,10 @@ public final class MethodValidationUtil {
         }
 
         return true;
+    }
+
+    private static boolean isInterfaceOrAbstract(PsiMethod method, PsiClass containingClass) {
+        return containingClass.isInterface() || method.hasModifierProperty(PsiModifier.ABSTRACT);
     }
 
     /**
