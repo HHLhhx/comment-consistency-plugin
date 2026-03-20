@@ -3,7 +3,7 @@ https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin
     versions. -->
-    <id>com.nju.comment-consistency-plugin</id>
+    <id>com.github.HHLhhx.comment-consistency-plugin</id>
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines:
@@ -11,15 +11,33 @@ https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
     <name>Comment-Consistency</name>
 
     <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
-    <vendor url="https://github.com/HHLhhx">HHLhhx</vendor>
+    <vendor
+            email="923511708@qq.com"
+            url="https://github.com/HHLhhx">
+        HHLhhx
+    </vendor>
 
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
          Guidelines:
     https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
-        本项目旨在实现一款面向开发者工作流的即时工具。
-        它通过集成大型语言模型，在代码编写过程中主动检测注释与实现逻辑的语义不一致，并提供智能修复建议，从而在源头保障软件文档质量，提升开发与维护效率。
+        <p>本项目旨在实现一款面向开发者工作流的即时工具。</p>
+        <h4>功能特性：</h4>
+        <ul>
+            <li>在代码编写过程中主动检测注释与实现逻辑的语义不一致</li>
+            <li>集成大型语言模型，提供注释一致性问题的智能修复建议</li>
+            <li>从源头保障软件文档质量，降低注释与代码偏离风险</li>
+            <li>提升团队开发效率与后续维护可读性</li>
+        </ul>
+        <p><strong>支持：</strong>如需反馈问题，请前往 <a href="https://github.com/HHLhhx/comment-consistency-plugin/issues">GitHub Issues</a>。</p>
     ]]></description>
+
+    <change-notes><![CDATA[
+        <h3>v1.1.0 (2026-03-20)</h3>
+        <ul>
+            <li>Publish the first version</li>
+        </ul>
+    ]]></change-notes>
 
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
@@ -29,40 +47,40 @@ https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <postStartupActivity implementation="com.nju.comment.PluginStartupActivity" />
+        <postStartupActivity implementation="com.nju.comment.PluginStartupActivity"/>
         <toolWindow id="Comment Consistency"
-            factoryClass="com.nju.comment.toolwindow.MainToolWindowFactory"
-            anchor="right"
-            icon="/icons/comment.png"
-            secondary="true" />
+                    factoryClass="com.nju.comment.toolwindow.MainToolWindowFactory"
+                    anchor="right"
+                    icon="/icons/comment.png"
+                    secondary="true"/>
         <notificationGroup id="Comment Consistency"
-            displayType="BALLOON"
-            isLogByDefault="true" />
+                           displayType="BALLOON"
+                           isLogByDefault="true"/>
         <codeInsight.lineMarkerProvider language="JAVA"
-            implementationClass="com.nju.comment.provider.CommentGutterIconProvider" />
+                                        implementationClass="com.nju.comment.provider.CommentGutterIconProvider"/>
     </extensions>
 
     <actions>
         <action id="CommentGenerator.GenerateFromMethod"
-            class="com.nju.comment.action.GenerateCommentOnMethodAction"
-            text="Generate Comment For This Method"
-            description="Generate method comment by backend">
-            <add-to-group group-id="EditorPopupMenu" anchor="last" />
-            <keyboard-shortcut first-keystroke="ctrl alt G" keymap="$default" />
+                class="com.nju.comment.action.GenerateCommentOnMethodAction"
+                text="Generate Comment For This Method"
+                description="Generate method comment by backend">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut first-keystroke="ctrl alt G" keymap="$default"/>
         </action>
         <action id="CommentGenerator.UpdateFromMethod"
-            class="com.nju.comment.action.UpdateCommentOnMethodAction"
-            text="Update Comment For This Method"
-            description="Update method comment by backend">
-            <add-to-group group-id="EditorPopupMenu" anchor="last" />
-            <keyboard-shortcut first-keystroke="ctrl alt U" keymap="$default" />
+                class="com.nju.comment.action.UpdateCommentOnMethodAction"
+                text="Update Comment For This Method"
+                description="Update method comment by backend">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut first-keystroke="ctrl alt U" keymap="$default"/>
         </action>
         <action id="CommentGenerator.UpdateFromFile"
-            class="com.nju.comment.action.UpdateCommentOnFileAction"
-            text="Update All Comments in This File"
-            description="Update all method comments in current file by backend">
-            <add-to-group group-id="EditorPopupMenu" anchor="last" />
-            <keyboard-shortcut first-keystroke="ctrl shift alt F" keymap="$default" />
+                class="com.nju.comment.action.UpdateCommentOnFileAction"
+                text="Update All Comments in This File"
+                description="Update all method comments in current file by backend">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut first-keystroke="ctrl shift alt F" keymap="$default"/>
         </action>
     </actions>
 </idea-plugin>
