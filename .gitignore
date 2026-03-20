@@ -1,15 +1,27 @@
-.gradle
+.gradle/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
-.kotlin
-.intellijPlatform
-docs/
-sign
+.kotlin/
+.intellijPlatform/
+sign/
+*.pem
+*.crt
+*.p12
+*.jks
+*.keystore
+*.key
+docs
+
+# Local runtime/config files
+.env
+.env.*
+!.env.example
+*.log
 
 ### IntelliJ IDEA ###
-.idea
+.idea/
 .idea/modules.xml
 .idea/jarRepositories.xml
 .idea/compiler.xml
@@ -45,3 +57,4 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+Thumbs.db
