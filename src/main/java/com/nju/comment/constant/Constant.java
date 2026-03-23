@@ -39,7 +39,7 @@ public final class Constant {
     public static final long GUTTER_REFRESH_DEBOUNCE_MS = 500;
 
     private static String resolveClientBaseUrl() {
-        String systemProperty = System.getProperty("comment.consistency.baseUrl");
+        String systemProperty = System.getProperty("client.baseUrl");
         if (systemProperty != null && !systemProperty.isBlank()) {
             return systemProperty;
         }
