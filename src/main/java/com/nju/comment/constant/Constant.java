@@ -1,5 +1,8 @@
 package com.nju.comment.constant;
 
+import java.io.InputStream;
+import java.util.Properties;
+
 public final class Constant {
 
     private  Constant() {
@@ -39,16 +42,18 @@ public final class Constant {
     public static final long GUTTER_REFRESH_DEBOUNCE_MS = 500;
 
     private static String resolveClientBaseUrl() {
-        String systemProperty = System.getProperty("client.baseUrl");
-        if (systemProperty != null && !systemProperty.isBlank()) {
-            return systemProperty;
+        try (InputStream in = Constant.class.getClassLoader().getResourceAsStream("comment-consistency.properties")) {
+            if (in != null) {
+                Properties props = new Properties();
+                props.load(in);
+                String propUrl = props.getProperty("client.baseUrl");
+                if (propUrl != null && !propUrl.isBlank()) {
+                    return propUrl;
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("加载配置文件失败", e);
         }
-
-        String env = System.getenv("COMMENT_CONSISTENCY_CLIENT_DEFAULT_BASE_URL");
-        if (env != null && !env.isBlank()) {
-            return env;
-        }
-
         return "http://localhost:8080/api";
     }
 }
