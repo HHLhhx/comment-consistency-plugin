@@ -24,7 +24,7 @@ public final class Constant {
     public static final int HTTP_DEFAULT_REQUEST_TIMEOUT_S = 20;
 
     // Client settings
-    public static final String CLIENT_DEFAULT_BASE_URL = "http://www.hhlhhx.top/api";
+    public static final String CLIENT_DEFAULT_BASE_URL = resolveClientBaseUrl();
     public static final int CLIENT_REQUEST_TIMEOUT_S = 60;
     public static final int CLIENT_THREAD_POOL_SIZE = 10;
     public static final int CLIENT_MAX_CONNECTION_REQUESTS = 20;
@@ -37,4 +37,18 @@ public final class Constant {
 
     // Gutter refresh debounce time
     public static final long GUTTER_REFRESH_DEBOUNCE_MS = 500;
+
+    private static String resolveClientBaseUrl() {
+        String systemProperty = System.getProperty("comment.consistency.baseUrl");
+        if (systemProperty != null && !systemProperty.isBlank()) {
+            return systemProperty;
+        }
+
+        String env = System.getenv("COMMENT_CONSISTENCY_CLIENT_DEFAULT_BASE_URL");
+        if (env != null && !env.isBlank()) {
+            return env;
+        }
+
+        return "http://localhost:8080/api";
+    }
 }

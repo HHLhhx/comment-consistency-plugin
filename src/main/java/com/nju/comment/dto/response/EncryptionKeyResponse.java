@@ -9,8 +9,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class AuthResponse {
-    private String token;
-    private String username;
-    private String message;
+public class EncryptionKeyResponse {
+    private String algorithm;
+    private String publicKey;
 }

@@ -40,7 +40,7 @@ public class SettingsPanel extends JPanel {
     private boolean apiKeyConfiguredHint;
     private boolean showFullApiKey;
     private volatile boolean apiKeyHintSyncing;
-    private static final String MASKED_API_KEY_TEXT = "********************************";
+    private static final String MASKED_API_KEY_TEXT = "****************";
 
     public SettingsPanel(Project project, Runnable onBack) {
         this.project = project;

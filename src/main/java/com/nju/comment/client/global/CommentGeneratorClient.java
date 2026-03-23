@@ -10,6 +10,7 @@ import com.nju.comment.dto.request.ApiKeyRequest;
 import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.request.LoginRequest;
 import com.nju.comment.dto.request.RegisterRequest;
+import com.nju.comment.dto.request.SendEmailCodeRequest;
 import com.nju.comment.dto.response.AuthResponse;
 import com.nju.comment.dto.response.CommentResponse;
 import com.nju.comment.client.CommentClient;
@@ -17,6 +18,7 @@ import com.nju.comment.client.PluginCommentClient;
 import com.nju.comment.exception.BackendException;
 import com.nju.comment.exception.ErrorHandler;
 import com.nju.comment.service.AuthManager;
+import com.nju.comment.util.RequestFieldEncryptor;
 import com.nju.comment.util.RequestIdGenerator;
 import com.nju.comment.util.TextProcessUtil;
 import lombok.Getter;
@@ -81,6 +83,8 @@ public class CommentGeneratorClient {
      */
     @Getter
     private static volatile boolean apiKeyLoaded = false;
+
+    private static volatile String encryptionPublicKey;
 
     // ========================== 客户端生命周期 ==========================
 
@@ -404,10 +408,17 @@ public class CommentGeneratorClient {
     /**
      * 登录
      */
-    public static CompletableFuture<AuthResponse> login(String username, String password) {
+    public static CompletableFuture<AuthResponse> login(String account, String password) {
         initCheck();
-        return client.login(new LoginRequest(username, password)).whenComplete((r, ex) -> {
+        return ensureEncryptionKey().thenCompose(publicKey -> {
+            String encryptedPassword = RequestFieldEncryptor.encrypt(password, publicKey);
+            return client.login(new LoginRequest(account, encryptedPassword));
+        }).whenComplete((r, ex) -> {
             if (ex == null) {
+                String username = r.getUsername();
+                if (username == null || username.isBlank()) {
+                    username = account;
+                }
                 AuthManager.saveAuth(r.getToken(), username);
                 cachedApiKey = null;
                 apiKeyLoaded = false;
@@ -416,17 +427,39 @@ public class CommentGeneratorClient {
     }
 
     /**
+     * 发送注册邮箱验证码
+     */
+    public static CompletableFuture<Void> sendRegisterEmailCode(String email) {
+        initCheck();
+        return client.sendRegisterEmailCode(new SendEmailCodeRequest(email));
+    }
+
+    /**
      * 注册
      */
-    public static CompletableFuture<AuthResponse> register(String username, String password, String phone) {
+    public static CompletableFuture<AuthResponse> register(String username,
+                                                           String email,
+                                                           String password,
+                                                           String confirmPassword,
+                                                           String emailCode) {
         initCheck();
-        return client.register(new RegisterRequest(username, password, phone)).whenComplete((r, ex) -> {
-            if (ex == null) {
-                AuthManager.saveAuth(r.getToken(), username);
-                cachedApiKey = null;
-                apiKeyLoaded = false;
-            }
-        });
+        return ensureEncryptionKey().thenCompose(publicKey -> {
+                    String encryptedPassword = RequestFieldEncryptor.encrypt(password, publicKey);
+                    String encryptedConfirmPassword = RequestFieldEncryptor.encrypt(confirmPassword, publicKey);
+                    return client.register(new RegisterRequest(
+                            username, email, encryptedPassword, encryptedConfirmPassword, emailCode));
+                })
+                .whenComplete((r, ex) -> {
+                    if (ex == null) {
+                        String canonicalUsername = r.getUsername();
+                        if (canonicalUsername == null || canonicalUsername.isBlank()) {
+                            canonicalUsername = username;
+                        }
+                        AuthManager.saveAuth(r.getToken(), canonicalUsername);
+                        cachedApiKey = null;
+                        apiKeyLoaded = false;
+                    }
+                });
     }
 
     /**
@@ -451,7 +484,10 @@ public class CommentGeneratorClient {
      */
     public static CompletableFuture<Void> saveApiKey(String apiKey, Project project) {
         initCheck();
-        return client.saveApiKey(new ApiKeyRequest(apiKey)).whenComplete((r, ex) -> {
+        return ensureEncryptionKey().thenCompose(publicKey -> {
+            String encryptedApiKey = RequestFieldEncryptor.encrypt(apiKey, publicKey);
+            return client.saveApiKey(new ApiKeyRequest(encryptedApiKey));
+        }).whenComplete((r, ex) -> {
             if (ex == null) {
                 cachedApiKey = apiKey;
                 apiKeyLoaded = true;
@@ -518,6 +554,20 @@ public class CommentGeneratorClient {
                     log.error("删除 API Key 请求失败", ex);
                 }
             }
+        });
+    }
+
+    private static CompletableFuture<String> ensureEncryptionKey() {
+        if (encryptionPublicKey != null && !encryptionPublicKey.isBlank()) {
+            return CompletableFuture.completedFuture(encryptionPublicKey);
+        }
+        return client.getEncryptionKey().thenApply(resp -> {
+            if (resp == null || resp.getPublicKey() == null || resp.getPublicKey().isBlank()) {
+                throw new BackendException(com.nju.comment.exception.ErrorCode.SYSTEM_ERROR,
+                        "未获取到后端加密公钥");
+            }
+            encryptionPublicKey = resp.getPublicKey();
+            return encryptionPublicKey;
         });
     }
 }

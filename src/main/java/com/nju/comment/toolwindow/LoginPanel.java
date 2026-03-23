@@ -14,6 +14,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
+import java.util.regex.Pattern;
 
 /**
  * 内嵌在 ToolWindow 中的登录/注册面板，通过 CardLayout 在登录视图与注册视图间切换。
@@ -37,11 +38,21 @@ public class LoginPanel extends JPanel {
 
     // ---- 注册视图 ----
     private JBTextField regUserField;
+    private JBTextField regEmailField;
     private JBPasswordField regPassField;
-    private JBTextField regPhoneField;
+    private JBPasswordField regConfirmPassField;
+    private JBTextField regEmailCodeField;
+    private JButton sendCodeBtn;
     private JButton regBtn;
     private JButton regBackBtn;
     private JBLabel regStatus;
+
+    private static final Pattern EMAIL_PATTERN =
+            Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
+
+    private static final int CODE_COOLDOWN_SECONDS = 60;
+    private Timer sendCodeCooldownTimer;
+    private int remainingCooldownSeconds;
 
     public LoginPanel() {
         setLayout(new GridBagLayout());
@@ -71,7 +82,7 @@ public class LoginPanel extends JPanel {
 
         // 表单
         JPanel form = formContainer();
-        loginUserField = addField(form, "用户名");
+        loginUserField = addField(form, "用户名或邮箱");
         loginPassField = addPasswordField(form, "密码");
 
         // 按钮
@@ -124,8 +135,30 @@ public class LoginPanel extends JPanel {
         // 表单
         JPanel form = formContainer();
         regUserField = addField(form, "用户名");
+        regEmailField = addField(form, "邮箱");
         regPassField = addPasswordField(form, "密码");
-        regPhoneField = addField(form, "电话号码");
+        regConfirmPassField = addPasswordField(form, "确认密码");
+        JBLabel codeLabel = new JBLabel("邮箱验证码");
+        codeLabel.setAlignmentX(LEFT_ALIGNMENT);
+
+        JPanel codePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        codePanel.setOpaque(false);
+        codePanel.setAlignmentX(LEFT_ALIGNMENT);
+        regEmailCodeField = new JBTextField();
+        regEmailCodeField.setPreferredSize(new Dimension(132, 34));
+        regEmailCodeField.setMaximumSize(new Dimension(132, 34));
+
+        sendCodeBtn = new JButton("发送验证码");
+        sendCodeBtn.setPreferredSize(new Dimension(120, 34));
+        sendCodeBtn.addActionListener(e -> doSendCode());
+
+        codePanel.add(regEmailCodeField);
+        codePanel.add(sendCodeBtn);
+
+        form.add(codeLabel);
+        form.add(Box.createVerticalStrut(4));
+        form.add(codePanel);
+        form.add(Box.createVerticalStrut(12));
 
         // 按钮
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
@@ -156,10 +189,12 @@ public class LoginPanel extends JPanel {
         card.add(regStatus);
 
         regBtn.addActionListener(e -> doRegister());
-        regPhoneField.addActionListener(e -> doRegister());
+        regEmailCodeField.addActionListener(e -> doRegister());
         attachClearOnType(regUserField, regStatus);
+        attachClearOnType(regEmailField, regStatus);
         attachClearOnType(regPassField, regStatus);
-        attachClearOnType(regPhoneField, regStatus);
+        attachClearOnType(regConfirmPassField, regStatus);
+        attachClearOnType(regEmailCodeField, regStatus);
         card.add(Box.createVerticalGlue());
         return card;
     }
@@ -167,17 +202,17 @@ public class LoginPanel extends JPanel {
     // ==================== 登录/注册逻辑 ====================
 
     private void doLogin() {
-        String user = loginUserField.getText().trim();
+        String account = loginUserField.getText().trim();
         String pass = new String(loginPassField.getPassword());
-        if (user.isEmpty() || pass.isEmpty()) {
-            showStatus(loginStatus, "用户名和密码不能为空", true);
+        if (account.isEmpty() || pass.isEmpty()) {
+            showStatus(loginStatus, "账号和密码不能为空", true);
             return;
         }
 
         setLoginControlsEnabled(false);
         showStatus(loginStatus, "登录中...", false);
 
-        CommentGeneratorClient.login(user, pass)
+        CommentGeneratorClient.login(account, pass)
                 .exceptionally(ex -> {
                     String msg = extractError(ex);
                     log.warn("登录失败: {}", msg);
@@ -191,21 +226,28 @@ public class LoginPanel extends JPanel {
 
     private void doRegister() {
         String user = regUserField.getText().trim();
+        String email = regEmailField.getText().trim();
         String pass = new String(regPassField.getPassword());
-        String phone = regPhoneField.getText().trim();
-        if (user.isEmpty() || pass.isEmpty()) {
-            showStatus(regStatus, "用户名和密码不能为空", true);
+        String confirmPass = new String(regConfirmPassField.getPassword());
+        String emailCode = regEmailCodeField.getText().trim();
+
+        if (user.isEmpty() || email.isEmpty() || pass.isEmpty() || confirmPass.isEmpty() || emailCode.isEmpty()) {
+            showStatus(regStatus, "请完整填写注册信息", true);
             return;
         }
-        if (phone.isEmpty()) {
-            showStatus(regStatus, "电话号码不能为空", true);
+        if (!isEmail(email)) {
+            showStatus(regStatus, "邮箱格式不正确", true);
+            return;
+        }
+        if (!pass.equals(confirmPass)) {
+            showStatus(regStatus, "两次输入密码不一致", true);
             return;
         }
 
         setRegControlsEnabled(false);
         showStatus(regStatus, "注册中...", false);
 
-        CommentGeneratorClient.register(user, pass, phone)
+        CommentGeneratorClient.register(user, email, pass, confirmPass, emailCode)
                 .exceptionally(ex -> {
                     String msg = extractError(ex);
                     log.warn("注册失败: {}", msg);
@@ -215,6 +257,61 @@ public class LoginPanel extends JPanel {
                     });
                     return null;
                 });
+    }
+
+    private void doSendCode() {
+        String email = regEmailField.getText().trim();
+        if (!isEmail(email)) {
+            showStatus(regStatus, "请输入合法邮箱后再发送验证码", true);
+            return;
+        }
+        if (remainingCooldownSeconds > 0) {
+            return;
+        }
+
+        sendCodeBtn.setEnabled(false);
+        showStatus(regStatus, "验证码发送中...", false);
+
+        CommentGeneratorClient.sendRegisterEmailCode(email)
+                .whenComplete((r, ex) -> ApplicationManager.getApplication().invokeLater(() -> {
+                    if (ex == null) {
+                        showStatus(regStatus, "验证码已发送，请检查邮箱", false);
+                        startCooldown();
+                    } else {
+                        sendCodeBtn.setEnabled(true);
+                        sendCodeBtn.setText("发送验证码");
+                        String msg = extractError(ex);
+                        log.warn("发送验证码失败: {}", msg);
+                        showStatus(regStatus, "发送失败: " + msg, true);
+                    }
+                }));
+    }
+
+    private void startCooldown() {
+        remainingCooldownSeconds = CODE_COOLDOWN_SECONDS;
+        updateSendCodeButtonText();
+        sendCodeBtn.setEnabled(false);
+
+        if (sendCodeCooldownTimer != null) {
+            sendCodeCooldownTimer.stop();
+        }
+
+        sendCodeCooldownTimer = new Timer(1000, e -> {
+            remainingCooldownSeconds--;
+            if (remainingCooldownSeconds <= 0) {
+                remainingCooldownSeconds = 0;
+                sendCodeCooldownTimer.stop();
+                sendCodeBtn.setText("发送验证码");
+                sendCodeBtn.setEnabled(true);
+            } else {
+                updateSendCodeButtonText();
+            }
+        });
+        sendCodeCooldownTimer.start();
+    }
+
+    private void updateSendCodeButtonText() {
+        sendCodeBtn.setText(remainingCooldownSeconds + "s后重试");
     }
 
     // ==================== 控件状态 ====================
@@ -229,8 +326,19 @@ public class LoginPanel extends JPanel {
         regBtn.setEnabled(enabled);
         regBackBtn.setEnabled(enabled);
         regUserField.setEnabled(enabled);
+        regEmailField.setEnabled(enabled);
         regPassField.setEnabled(enabled);
-        regPhoneField.setEnabled(enabled);
+        regConfirmPassField.setEnabled(enabled);
+        regEmailCodeField.setEnabled(enabled);
+        if (!enabled) {
+            sendCodeBtn.setEnabled(false);
+            return;
+        }
+        sendCodeBtn.setEnabled(remainingCooldownSeconds == 0);
+    }
+
+    private static boolean isEmail(String email) {
+        return EMAIL_PATTERN.matcher(email).matches();
     }
 
     // ==================== UI 工具 ====================
@@ -247,7 +355,7 @@ public class LoginPanel extends JPanel {
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         form.setOpaque(false);
         form.setAlignmentX(CENTER_ALIGNMENT);
-        form.setMaximumSize(new Dimension(260, 280));
+        form.setMaximumSize(new Dimension(320, 320));
         return form;
     }
 

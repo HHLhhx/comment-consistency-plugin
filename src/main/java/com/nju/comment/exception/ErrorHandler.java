@@ -89,7 +89,7 @@ public final class ErrorHandler {
 
             case AUTH_LOGIN_FAILED -> notify(
                     "登录失败",
-                    "用户名或密码错误，请重试。",
+                    "用户名/邮箱或密码错误，请重试。",
                     NotificationType.WARNING, project);
 
             case AUTH_USERNAME_EXISTS -> notify(
@@ -100,6 +100,26 @@ public final class ErrorHandler {
             case AUTH_PHONE_EXISTS -> notify(
                     "注册失败",
                     "手机号已被注册，请更换手机号。",
+                    NotificationType.WARNING, project);
+
+            case AUTH_EMAIL_EXISTS -> notify(
+                    "注册失败",
+                    "邮箱已被注册，请更换邮箱。",
+                    NotificationType.WARNING, project);
+
+            case AUTH_EMAIL_CODE_INVALID -> notify(
+                    "注册失败",
+                    "邮箱验证码错误或已过期，请重新获取。",
+                    NotificationType.WARNING, project);
+
+            case AUTH_PASSWORD_CONFIRM_MISMATCH -> notify(
+                    "注册失败",
+                    "两次输入密码不一致，请检查后重试。",
+                    NotificationType.WARNING, project);
+
+            case AUTH_EMAIL_SEND_FAILED -> notify(
+                    "验证码发送失败",
+                    "邮箱验证码发送失败，请稍后重试。",
                     NotificationType.WARNING, project);
 
             case LLM_API_KEY_NOT_SET -> notify(

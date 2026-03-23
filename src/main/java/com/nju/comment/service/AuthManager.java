@@ -1,6 +1,8 @@
 package com.nju.comment.service;
 
-import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.credentialStore.CredentialAttributes;
+import com.intellij.credentialStore.Credentials;
+import com.intellij.ide.passwordSafe.PasswordSafe;
 import com.intellij.openapi.application.ApplicationManager;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -11,8 +13,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public final class AuthManager {
 
-    private static final String TOKEN_KEY = "comment.consistency.auth.token";
-    private static final String USERNAME_KEY = "comment.consistency.auth.username";
+    private static final String AUTH_SERVICE_NAME = "comment-consistency-plugin-auth";
+    private static final CredentialAttributes TOKEN_ATTRIBUTES =
+            new CredentialAttributes(AUTH_SERVICE_NAME + ":token");
+    private static final CredentialAttributes USERNAME_ATTRIBUTES =
+            new CredentialAttributes(AUTH_SERVICE_NAME + ":username");
     private static final Object AUTH_LOCK = new Object();
 
     @Getter
@@ -27,10 +32,11 @@ public final class AuthManager {
      * 从持久化存储恢复登录状态（插件启动时调用）
      */
     public static void init() {
-        PropertiesComponent props = PropertiesComponent.getInstance();
         synchronized (AUTH_LOCK) {
-            token = props.getValue(TOKEN_KEY);
-            username = props.getValue(USERNAME_KEY);
+            Credentials tokenCredentials = PasswordSafe.getInstance().get(TOKEN_ATTRIBUTES);
+            Credentials usernameCredentials = PasswordSafe.getInstance().get(USERNAME_ATTRIBUTES);
+            token = tokenCredentials == null ? null : tokenCredentials.getPasswordAsString();
+            username = usernameCredentials == null ? null : usernameCredentials.getPasswordAsString();
         }
         if (token != null) {
             log.info("已恢复登录状态: username={}", username);
@@ -44,9 +50,8 @@ public final class AuthManager {
         synchronized (AUTH_LOCK) {
             token = newToken;
             username = newUsername;
-            PropertiesComponent props = PropertiesComponent.getInstance();
-            props.setValue(TOKEN_KEY, newToken);
-            props.setValue(USERNAME_KEY, newUsername);
+            PasswordSafe.getInstance().set(TOKEN_ATTRIBUTES, new Credentials("token", newToken));
+            PasswordSafe.getInstance().set(USERNAME_ATTRIBUTES, new Credentials("username", newUsername));
         }
         log.info("已保存登录状态: username={}", newUsername);
         notifyAuthChanged();
@@ -59,9 +64,8 @@ public final class AuthManager {
         synchronized (AUTH_LOCK) {
             token = null;
             username = null;
-            PropertiesComponent props = PropertiesComponent.getInstance();
-            props.unsetValue(TOKEN_KEY);
-            props.unsetValue(USERNAME_KEY);
+            PasswordSafe.getInstance().set(TOKEN_ATTRIBUTES, null);
+            PasswordSafe.getInstance().set(USERNAME_ATTRIBUTES, null);
         }
         log.info("已清除登录状态");
         notifyAuthChanged();

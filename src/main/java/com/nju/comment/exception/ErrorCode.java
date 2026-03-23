@@ -29,13 +29,17 @@ public enum ErrorCode {
     COMMENT_SERVICE_ERROR(5001, "注释服务异常", ErrorLevel.ERROR, false),
 
     // ---- 认证 7xxx ----
-    AUTH_LOGIN_FAILED(7001, "用户名或密码错误", ErrorLevel.WARN, false),
+    AUTH_LOGIN_FAILED(7001, "用户名/邮箱或密码错误", ErrorLevel.WARN, false),
     AUTH_USERNAME_EXISTS(7002, "用户名已存在", ErrorLevel.WARN, false),
     AUTH_TOKEN_EXPIRED(7003, "登录已过期，请重新登录", ErrorLevel.WARN, false),
     AUTH_TOKEN_INVALID(7004, "登录凭证无效，请重新登录", ErrorLevel.WARN, false),
     AUTH_NOT_LOGGED_IN(7005, "未登录，请先登录", ErrorLevel.WARN, false),
     AUTH_TOKEN_BLACKLISTED(7008, "令牌已失效，请重新登录", ErrorLevel.WARN, false),
     AUTH_PHONE_EXISTS(7009, "手机号已被注册", ErrorLevel.WARN, false),
+    AUTH_EMAIL_EXISTS(7010, "邮箱已被注册", ErrorLevel.WARN, false),
+    AUTH_EMAIL_CODE_INVALID(7011, "邮箱验证码错误或已过期", ErrorLevel.WARN, false),
+    AUTH_PASSWORD_CONFIRM_MISMATCH(7012, "两次输入密码不一致", ErrorLevel.WARN, false),
+    AUTH_EMAIL_SEND_FAILED(7013, "邮箱验证码发送失败", ErrorLevel.ERROR, true),
 
     // ---- 兜底：未知错误码 ----
     UNKNOWN(-1, "未知错误", ErrorLevel.ERROR, false);

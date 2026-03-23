@@ -9,9 +9,11 @@ import com.nju.comment.dto.request.ApiKeyRequest;
 import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.request.LoginRequest;
 import com.nju.comment.dto.request.RegisterRequest;
+import com.nju.comment.dto.request.SendEmailCodeRequest;
 import com.nju.comment.dto.response.ApiResponse;
 import com.nju.comment.dto.response.AuthResponse;
 import com.nju.comment.dto.response.CommentResponse;
+import com.nju.comment.dto.response.EncryptionKeyResponse;
 import com.nju.comment.service.AuthManager;
 import com.nju.comment.exception.BackendException;
 import com.nju.comment.exception.ErrorCode;
@@ -209,6 +211,22 @@ public class PluginCommentClient implements CommentClient {
         return sendBody("/auth/login", "POST", request, root -> {
             ApiResponse resp = checkResponse(root);
             return objectMapper.treeToValue(resp.getData(), AuthResponse.class);
+        }, false);
+    }
+
+    @Override
+    public CompletableFuture<EncryptionKeyResponse> getEncryptionKey() {
+        return send("/auth/encryption-key", "GET", root -> {
+            ApiResponse resp = checkResponse(root);
+            return objectMapper.treeToValue(resp.getData(), EncryptionKeyResponse.class);
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> sendRegisterEmailCode(SendEmailCodeRequest request) {
+        return sendBody("/auth/send-email-code", "POST", request, root -> {
+            checkResponse(root);
+            return null;
         }, false);
     }
 
