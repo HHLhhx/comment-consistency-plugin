@@ -12,6 +12,7 @@ import com.nju.comment.service.AuthManager;
 import com.nju.comment.service.PluginProjectService;
 
 import java.awt.*;
+import java.net.URI;
 import javax.swing.*;
 
 import lombok.extern.slf4j.Slf4j;
@@ -159,11 +160,22 @@ public class SettingsPanel extends JPanel {
         deleteKeyBtn = new JButton("删除 Key");
         deleteKeyBtn.setForeground(JBColor.RED);
 
+        // 新增“申请api-key”按钮
+        JButton applyKeyBtn = new JButton("申请api-key");
+        applyKeyBtn.addActionListener(e -> {
+            try {
+                Desktop.getDesktop().browse(new URI("https://ollama.com/settings/keys"));
+            } catch (Exception ex) {
+                Messages.showErrorDialog("无法打开浏览器: " + ex.getMessage(), "错误");
+            }
+        });
+
         saveKeyBtn.addActionListener(e -> doSaveKey());
         deleteKeyBtn.addActionListener(e -> doDeleteKey());
 
         btnRow.add(saveKeyBtn);
         btnRow.add(deleteKeyBtn);
+        btnRow.add(applyKeyBtn);
         panel.add(btnRow);
 
         showFullApiKey = pluginService.isShowFullApiKeyEnabled();
