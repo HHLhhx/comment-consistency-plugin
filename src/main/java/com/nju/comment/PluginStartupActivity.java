@@ -2,28 +2,24 @@ package com.nju.comment;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.startup.ProjectActivity;
+import com.intellij.openapi.startup.StartupActivity;
 import com.nju.comment.service.PluginApplicationService;
 import com.nju.comment.service.PluginProjectService;
-import kotlin.Unit;
-import kotlin.coroutines.Continuation;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 @Slf4j
-public class PluginStartupActivity implements ProjectActivity {
+public class PluginStartupActivity implements StartupActivity.DumbAware {
 
     @Override
-    public @Nullable Object execute(@NotNull Project project, @NotNull Continuation<? super Unit> continuation) {
-        // 触发应用级服务初始化（确保 dispose 回调已注册）
+    public void runActivity(@NotNull Project project) {
+        // Ensure application-level services are initialized before project startup logic runs.
         ApplicationManager.getApplication().getService(PluginApplicationService.class);
 
         PluginProjectService pluginProjectService = project.getService(PluginProjectService.class);
-        log.info("执行插件启动活动，初始化项目服务: {}", pluginProjectService);
+        log.info("Plugin project service initialized: {}", pluginProjectService);
         if (pluginProjectService != null) {
             pluginProjectService.initialize();
         }
-        return null;
     }
 }

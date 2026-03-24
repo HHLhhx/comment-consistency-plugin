@@ -605,12 +605,17 @@ public final class MethodValidationUtil {
      * 判断类型是否可解析。原始类型与数组类型直接通过；类类型必须能 resolve。
      */
     private static boolean isTypeResolvable(PsiType type) {
-        return switch (type) {
-            case null -> false;
-            case PsiArrayType psiArrayType -> isTypeResolvable(psiArrayType.getComponentType());
-            case PsiClassType psiClassType -> psiClassType.resolve() != null;
-            default -> true; // 原始类型等直接视为可解析
-        };
+        if (type == null) {
+            return false;
+        }
+        if (type instanceof PsiArrayType psiArrayType) {
+            return isTypeResolvable(psiArrayType.getComponentType());
+        }
+        if (type instanceof PsiClassType psiClassType) {
+            return psiClassType.resolve() != null;
+        }
+        // 原始类型等直接视为可解析
+        return true;
     }
 
     /**

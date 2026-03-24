@@ -1,3 +1,6 @@
+import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
+import org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask
+
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.1.0"
@@ -19,7 +22,7 @@ repositories {
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
     intellijPlatform {
-        create("IC", "2024.2")
+        create("IC", "2022.3")
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
 
         // Add necessary plugin dependencies for compilation here, example:
@@ -40,13 +43,13 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         ideaVersion {
-            sinceBuild = "242"
+            sinceBuild = "223"
         }
     }
 
     pluginVerification {
         ides {
-            create("IC", "2024.2")
+            create("IC", "2022.3")
         }
     }
 
@@ -65,13 +68,55 @@ intellijPlatform {
 tasks {
     // Set the JVM compatibility versions
     withType<JavaCompile> {
-        sourceCompatibility = "21"
-        targetCompatibility = "21"
+        sourceCompatibility = "17"
+        targetCompatibility = "17"
+        options.encoding = "UTF-8"
+    }
+
+    withType<PrepareSandboxTask> {
+        doLast {
+            fun prepareSandboxNoiseReduction(configDir: File) {
+                if (!configDir.exists()) {
+                    configDir.mkdirs()
+                }
+
+                File(configDir, "early-access-registry.txt").writeText(
+                    """
+                    ide.experimental.ui
+                    false
+                    unknown.sdk
+                    false
+                    unknown.sdk.auto
+                    false
+                    sdk.detector.enabled
+                    false
+                    """.trimIndent() + System.lineSeparator(),
+                    Charsets.UTF_8
+                )
+
+                val vmOptionsFile = File(configDir, "idea64.exe.vmoptions")
+                if (!vmOptionsFile.exists()) {
+                    vmOptionsFile.writeText("", Charsets.UTF_8)
+                }
+            }
+
+            prepareSandboxNoiseReduction(sandboxConfigDirectory.get().asFile)
+        }
+    }
+
+    withType<RunIdeTask> {
+        // The sandbox IDE does not need native file watching for plugin debugging.
+        systemProperty("idea.filewatcher.disabled", "true")
+
+        doFirst {
+            val vmOptionsFile = sandboxConfigDirectory.get().file("idea64.exe.vmoptions")
+            systemProperty("jb.vmOptionsFile", vmOptionsFile.asFile.absolutePath)
+        }
     }
 }
 
 kotlin {
     compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }

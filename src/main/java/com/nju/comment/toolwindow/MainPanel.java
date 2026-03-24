@@ -274,8 +274,8 @@ public class MainPanel extends JPanel implements Disposable {
             if (sel != null && models.contains(sel)) {
                 comboBoxModel.setSelectedItem(sel);
             } else if (!models.isEmpty()) {
-                comboBoxModel.setSelectedItem(models.getFirst());
-                pluginService.updateSelectedModel(models.getFirst());
+                comboBoxModel.setSelectedItem(models.get(0));
+                pluginService.updateSelectedModel(models.get(0));
             }
         } finally {
             suppressModelAction = false;
@@ -294,8 +294,8 @@ public class MainPanel extends JPanel implements Disposable {
                     if (sel != null && !sel.isEmpty() && models.contains(sel)) {
                         comboBoxModel.setSelectedItem(sel);
                     } else if (!models.isEmpty()) {
-                        comboBoxModel.setSelectedItem(models.getFirst());
-                        pluginService.updateSelectedModel(models.getFirst());
+                        comboBoxModel.setSelectedItem(models.get(0));
+                        pluginService.updateSelectedModel(models.get(0));
                     }
                 } finally {
                     suppressModelAction = false;
