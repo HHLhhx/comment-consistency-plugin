@@ -1,139 +1,152 @@
 package com.nju.comment.util;
 
 import com.intellij.codeInsight.AnnotationUtil;
-import com.intellij.openapi.project.Project;
 import com.intellij.codeInsight.ExceptionUtil;
-import com.intellij.psi.*;
+import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.Project;
+import com.intellij.psi.CommonClassNames;
+import com.intellij.psi.JavaPsiFacade;
+import com.intellij.psi.PsiArrayType;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiClassType;
+import com.intellij.psi.PsiCodeBlock;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiErrorElement;
+import com.intellij.psi.PsiExpression;
+import com.intellij.psi.PsiJavaCodeReferenceElement;
+import com.intellij.psi.PsiLambdaExpression;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiMethodCallExpression;
+import com.intellij.psi.PsiModifier;
+import com.intellij.psi.PsiNameHelper;
+import com.intellij.psi.PsiParameter;
+import com.intellij.psi.PsiPrimitiveType;
+import com.intellij.psi.PsiReferenceExpression;
+import com.intellij.psi.PsiReturnStatement;
+import com.intellij.psi.PsiThrowStatement;
+import com.intellij.psi.PsiType;
+import com.intellij.psi.PsiTypeParameter;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.MethodSignatureUtil;
 import com.intellij.psi.util.PsiTreeUtil;
-import lombok.extern.slf4j.Slf4j;
+import com.nju.comment.pojo.MethodValidationResult;
 
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 
-/**
- * PsiMethod 合法性校验工具。
- * <p>
- * 目标：尽可能覆盖 Java 编译期会报错的场景，避免对不完整/错误的方法做进一步处理。
- * 该校验不追求 100% 语义级正确性（如完整控制流返回分析），但会对结构、修饰符、类型、
- * 引用解析、方法体可用性等关键点进行严格验证。
- */
-@Slf4j
 public final class MethodValidationUtil {
 
     private MethodValidationUtil() {
     }
 
-    /**
-     * 判断方法是否“可编译”。
-     *
-     * @param method 目标方法
-     * @return 是否合法
-     */
-    public static boolean isValid(PsiMethod method) {
+    public static boolean isQuicklyEligible(PsiMethod method) {
         if (method == null || !method.isValid()) {
-            log.warn("方法为空或 PSI 已失效，无法处理: {}", method);
+            return false;
+        }
+        Project project = method.getProject();
+        if (project.isDisposed() || DumbService.isDumb(project)) {
             return false;
         }
 
         PsiClass containingClass = method.getContainingClass();
         if (containingClass == null || !containingClass.isValid()) {
-            log.warn("方法未归属到有效类中，跳过：{}", MethodRecordUtil.buildMethodKey(method));
             return false;
+        }
+        if (containingClass.getQualifiedName() == null || containingClass.isInterface()) {
+            return false;
+        }
+        if (method.hasModifierProperty(PsiModifier.ABSTRACT)) {
+            return false;
+        }
+        if (method.getBody() == null) {
+            return false;
+        }
+
+        return PsiTreeUtil.findChildOfType(method, PsiErrorElement.class) == null;
+    }
+
+    @Deprecated
+    public static boolean isValid(PsiMethod method) {
+        return validateCompilable(method).isValid();
+    }
+
+    public static MethodValidationResult validateCompilable(PsiMethod method) {
+        long sourceStamp = MethodRecordUtil.getSourceStamp(method);
+        if (method == null || !method.isValid()) {
+            return MethodValidationResult.invalid("Method PSI is invalid", sourceStamp);
+        }
+
+        PsiClass containingClass = method.getContainingClass();
+        if (containingClass == null || !containingClass.isValid()) {
+            return MethodValidationResult.invalid("Containing class is invalid", sourceStamp);
         }
 
         if (containingClass.getQualifiedName() == null) {
-            log.warn("方法所在类缺少有效限定名，跳过：{}", MethodRecordUtil.buildMethodKey(method));
-            return false;
+            return MethodValidationResult.invalid("Containing class has no qualified name", sourceStamp);
         }
 
         if (isInterfaceOrAbstract(method, containingClass)) {
-            return false;
+            return MethodValidationResult.invalid("Method is abstract or belongs to an interface", sourceStamp);
         }
 
-        if (!isMethodNameValid(method, containingClass)) {
-            return false;
-        }
+        String reason;
+        reason = validateMethodName(method, containingClass);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isModifierValid(method, containingClass)) {
-            return false;
-        }
+        reason = validateModifier(method, containingClass);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isReturnTypeValid(method, containingClass)) {
-            return false;
-        }
+        reason = validateReturnType(method, containingClass);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isParameterListValid(method)) {
-            return false;
-        }
+        reason = validateParameterList(method);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isTypeParameterValid(method)) {
-            return false;
-        }
+        reason = validateTypeParameter(method);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isThrowsListValid(method)) {
-            return false;
-        }
+        reason = validateThrowsList(method);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isMethodBodyValid(method, containingClass)) {
-            return false;
-        }
+        reason = validateMethodBody(method, containingClass);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!areCheckedExceptionsHandledOrDeclared(method)) {
-            return false;
-        }
+        reason = validateCheckedExceptions(method);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isOverrideValid(method)) {
-            return false;
-        }
+        reason = validateOverride(method);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isSignatureUniqueInClass(method, containingClass)) {
-            return false;
-        }
+        reason = validateUniqueSignature(method, containingClass);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isPsiReferencesResolved(method)) {
-            return false;
-        }
+        reason = validatePsiReferences(method);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        if (!isReturnStatementValid(method)) {
-            return false;
-        }
+        reason = validateReturnStatements(method);
+        if (reason != null) return MethodValidationResult.invalid(reason, sourceStamp);
 
-        return true;
+        return MethodValidationResult.valid(sourceStamp);
     }
 
     private static boolean isInterfaceOrAbstract(PsiMethod method, PsiClass containingClass) {
         return containingClass.isInterface() || method.hasModifierProperty(PsiModifier.ABSTRACT);
     }
 
-    /**
-     * 检查方法体中的检查型异常（非 RuntimeException/Error）是否被捕获或在 throws 中声明。
-     * 近似规则：
-     * - 通过 ExceptionUtil 计算未被 catch 的异常集合；
-     * - 排除未检查异常（RuntimeException/Error 及其子类）；
-     * - 若未检查异常不在 throws 列表（或其父类型）中，则判定为非法。
-     */
-    private static boolean areCheckedExceptionsHandledOrDeclared(PsiMethod method) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validateCheckedExceptions(PsiMethod method) {
         PsiCodeBlock body = method.getBody();
         if (body == null) {
-            // 抽象/接口无方法体或不需要方法体的情况，跳过该检查
-            return true;
+            return null;
         }
 
-        // 计算在该方法体作用域内未被捕获的异常类型
-        final PsiClassType[] unhandled = ExceptionUtil.getUnhandledExceptions(body).toArray(new PsiClassType[0]);
+        PsiClassType[] unhandled = ExceptionUtil.getUnhandledExceptions(body).toArray(new PsiClassType[0]);
         if (unhandled.length == 0) {
-            return true;
+            return null;
         }
 
-        // 已声明的 throws 类型
         PsiClassType[] declared = method.getThrowsList().getReferencedTypes();
-
-        // 基类：RuntimeException 与 Error（未检查异常）
         Project project = method.getProject();
         PsiClass runtimeEx = JavaPsiFacade.getInstance(project)
                 .findClass(CommonClassNames.JAVA_LANG_RUNTIME_EXCEPTION, GlobalSearchScope.allScope(project));
@@ -143,12 +156,9 @@ public final class MethodValidationUtil {
         for (PsiClassType type : unhandled) {
             PsiClass exCls = type.resolve();
             if (exCls == null) {
-                // 无法解析，按严格策略视为未满足
-                log.warn("存在未解析异常类型，且未捕获/未声明，跳过：{} -> {}", methodKey, type.getCanonicalText());
-                return false;
+                return "Unhandled exception type cannot be resolved";
             }
 
-            // 跳过未检查异常（RuntimeException 与 Error 及其子类）
             boolean isUnchecked = (runtimeEx != null && exCls.isInheritor(runtimeEx, true))
                     || (errorEx != null && exCls.isInheritor(errorEx, true))
                     || CommonClassNames.JAVA_LANG_RUNTIME_EXCEPTION.equals(exCls.getQualifiedName())
@@ -157,7 +167,6 @@ public final class MethodValidationUtil {
                 continue;
             }
 
-            // 检查是否在 throws 声明中被覆盖（父类型也可覆盖子类型）
             boolean covered = false;
             for (PsiClassType decType : declared) {
                 PsiClass decCls = decType.resolve();
@@ -171,47 +180,33 @@ public final class MethodValidationUtil {
             }
 
             if (!covered) {
-                log.warn("方法包含未被捕获且未在 throws 声明的检查型异常，跳过：{} -> {}", methodKey, type.getCanonicalText());
-                return false;
+                return "Checked exception is not caught or declared";
             }
         }
 
-        return true;
+        return null;
     }
 
-    /**
-     * 方法名合法性校验：构造器名称必须与类名一致；普通方法名必须是合法标识符。
-     */
-    private static boolean isMethodNameValid(PsiMethod method, PsiClass containingClass) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validateMethodName(PsiMethod method, PsiClass containingClass) {
         if (method.getNameIdentifier() == null) {
-            log.warn("方法缺少名称标识符，跳过：{}", methodKey);
-            return false;
+            return "Method name identifier is missing";
         }
 
         String name = method.getName();
-        Project project = method.getProject();
-        PsiNameHelper nameHelper = PsiNameHelper.getInstance(project);
+        PsiNameHelper nameHelper = PsiNameHelper.getInstance(method.getProject());
 
         if (method.isConstructor()) {
             if (!Objects.equals(containingClass.getName(), name)) {
-                log.warn("构造器名称与类名不一致，跳过：{}", methodKey);
-                return false;
+                return "Constructor name does not match class name";
             }
-        } else {
-            if (!nameHelper.isIdentifier(name)) {
-                log.warn("方法名不是合法 Java 标识符，跳过：{} -> {}", methodKey, name);
-                return false;
-            }
+        } else if (!nameHelper.isIdentifier(name)) {
+            return "Method name is not a valid Java identifier";
         }
-        return true;
+
+        return null;
     }
 
-    /**
-     * 修饰符合法性校验：互斥组合、接口/注解/构造器等特殊规则。
-     */
-    private static boolean isModifierValid(PsiMethod method, PsiClass containingClass) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validateModifier(PsiMethod method, PsiClass containingClass) {
         boolean isAbstract = method.hasModifierProperty(PsiModifier.ABSTRACT);
         boolean isFinal = method.hasModifierProperty(PsiModifier.FINAL);
         boolean isPrivate = method.hasModifierProperty(PsiModifier.PRIVATE);
@@ -221,179 +216,127 @@ public final class MethodValidationUtil {
         boolean isStrictfp = method.hasModifierProperty(PsiModifier.STRICTFP);
         boolean isDefault = method.hasModifierProperty(PsiModifier.DEFAULT);
 
-        // 抽象方法与多种修饰符互斥
         if (isAbstract && (isFinal || isPrivate || isStatic || isNative || isSynchronized || isStrictfp || isDefault)) {
-            log.warn("抽象方法存在互斥修饰符，跳过：{}", methodKey);
-            return false;
+            return "Abstract method has conflicting modifiers";
         }
 
-        // 构造器修饰符限制
-        if (method.isConstructor()) {
-            if (isAbstract || isFinal || isStatic || isNative || isSynchronized || isStrictfp) {
-                log.warn("构造器包含非法修饰符，跳过：{}", methodKey);
-                return false;
-            }
+        if (method.isConstructor() && (isAbstract || isFinal || isStatic || isNative || isSynchronized || isStrictfp)) {
+            return "Constructor has illegal modifiers";
         }
 
-        // 注解类型成员方法规则
         if (containingClass.isAnnotationType()) {
             if (isStatic || isPrivate || isFinal || isSynchronized || isNative || isStrictfp || isDefault) {
-                log.warn("注解方法存在非法修饰符，跳过：{}", methodKey);
-                return false;
+                return "Annotation method has illegal modifiers";
             }
             if (method.getParameterList().getParametersCount() != 0) {
-                log.warn("注解方法不允许有参数，跳过：{}", methodKey);
-                return false;
+                return "Annotation method cannot declare parameters";
             }
         }
 
-        // 接口方法规则
         if (containingClass.isInterface() && !containingClass.isAnnotationType()) {
-            // 接口方法不允许 protected/final
             if (method.hasModifierProperty(PsiModifier.PROTECTED) || isFinal) {
-                log.warn("接口方法包含非法修饰符，跳过：{}", methodKey);
-                return false;
+                return "Interface method has illegal modifiers";
             }
-            // default 方法必须有方法体
             if (isDefault && method.getBody() == null) {
-                log.warn("接口 default 方法缺少方法体，跳过：{}", methodKey);
-                return false;
+                return "Default interface method has no body";
             }
-            // private/static 方法必须有方法体
             if ((isPrivate || isStatic) && method.getBody() == null) {
-                log.warn("接口 private/static 方法缺少方法体，跳过：{}", methodKey);
-                return false;
+                return "Private or static interface method has no body";
             }
-            // 非 default/private/static 的接口方法若无方法体，则必须是 abstract
             if (!isDefault && !isPrivate && !isStatic && method.getBody() == null && !isAbstract) {
-                log.warn("接口抽象方法缺少 abstract 修饰符，跳过：{}", methodKey);
-                return false;
+                return "Interface declaration is missing abstract modifier";
             }
         }
 
-        return true;
+        return null;
     }
 
-    /**
-     * 返回类型合法性校验：构造器无返回类型；普通方法返回类型必须可解析。
-     * 注解方法返回类型有限制。
-     */
-    private static boolean isReturnTypeValid(PsiMethod method, PsiClass containingClass) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validateReturnType(PsiMethod method, PsiClass containingClass) {
         PsiType returnType = method.getReturnType();
 
         if (method.isConstructor()) {
-            if (returnType != null) {
-                log.warn("构造器不应有返回类型，跳过：{}", methodKey);
-                return false;
-            }
-            return true;
+            return returnType != null ? "Constructor should not declare a return type" : null;
         }
 
         if (returnType == null) {
-            log.warn("方法缺少返回类型，跳过：{}", methodKey);
-            return false;
+            return "Method return type is missing";
         }
 
         if (!isTypeResolvable(returnType)) {
-            log.warn("方法返回类型不可解析，跳过：{} -> {}", methodKey, returnType.getCanonicalText());
-            return false;
+            return "Method return type cannot be resolved";
         }
 
         if (containingClass.isAnnotationType() && !isAnnotationReturnTypeAllowed(returnType)) {
-            log.warn("注解方法返回类型非法，跳过：{} -> {}", methodKey, returnType.getCanonicalText());
-            return false;
+            return "Annotation method return type is illegal";
         }
 
-        return true;
+        return null;
     }
 
-    /**
-     * 参数列表合法性校验：类型可解析、名称合法、不重复、varargs 位置正确。
-     */
-    private static boolean isParameterListValid(PsiMethod method) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validateParameterList(PsiMethod method) {
         PsiParameter[] parameters = method.getParameterList().getParameters();
         Set<String> names = new HashSet<>();
 
         for (int i = 0; i < parameters.length; i++) {
             PsiParameter parameter = parameters[i];
             if (parameter == null || !parameter.isValid()) {
-                log.warn("存在无效参数节点，跳过：{}", methodKey);
-                return false;
+                return "Parameter node is invalid";
             }
 
             String name = parameter.getName();
             PsiNameHelper nameHelper = PsiNameHelper.getInstance(method.getProject());
             if (!nameHelper.isIdentifier(name)) {
-                log.warn("参数名非法，跳过：{} -> {}", methodKey, name);
-                return false;
+                return "Parameter name is invalid";
             }
 
             if (!names.add(name)) {
-                log.warn("参数名重复，跳过：{} -> {}", methodKey, name);
-                return false;
+                return "Duplicate parameter name";
             }
 
             PsiType type = parameter.getType();
             if (type instanceof PsiPrimitiveType && "void".equals(type.getCanonicalText())) {
-                log.warn("参数类型不能为 void，跳过：{} -> {}", methodKey, name);
-                return false;
+                return "Parameter type cannot be void";
             }
 
             if (!isTypeResolvable(type)) {
-                log.warn("参数类型不可解析，跳过：{} -> {}", methodKey, type.getCanonicalText());
-                return false;
+                return "Parameter type cannot be resolved";
             }
 
             if (parameter.isVarArgs() && i != parameters.length - 1) {
-                log.warn("可变参数必须是最后一个，跳过：{}", methodKey);
-                return false;
+                return "Varargs parameter must be the last parameter";
             }
         }
 
-        return true;
+        return null;
     }
 
-    /**
-     * 类型参数合法性校验：名称合法、不重复、上界可解析。
-     */
-    private static boolean isTypeParameterValid(PsiMethod method) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validateTypeParameter(PsiMethod method) {
         PsiTypeParameter[] typeParameters = method.getTypeParameters();
         Set<String> names = new HashSet<>();
 
         for (PsiTypeParameter typeParameter : typeParameters) {
             if (typeParameter == null || !typeParameter.isValid()) {
-                log.warn("类型参数节点无效，跳过：{}", methodKey);
-                return false;
+                return "Type parameter node is invalid";
             }
             String name = typeParameter.getName();
             PsiNameHelper nameHelper = PsiNameHelper.getInstance(method.getProject());
             if (name == null || !nameHelper.isIdentifier(name)) {
-                log.warn("类型参数名非法，跳过：{} -> {}", methodKey, name);
-                return false;
+                return "Type parameter name is invalid";
             }
             if (!names.add(name)) {
-                log.warn("类型参数名重复，跳过：{} -> {}", methodKey, name);
-                return false;
+                return "Duplicate type parameter name";
             }
 
             for (PsiClassType bound : typeParameter.getExtendsListTypes()) {
                 if (!isTypeResolvable(bound)) {
-                    log.warn("类型参数上界不可解析，跳过：{} -> {}", methodKey, bound.getCanonicalText());
-                    return false;
+                    return "Type parameter bound cannot be resolved";
                 }
             }
         }
-        return true;
+        return null;
     }
 
-    /**
-     * throws 子句合法性校验：必须是 Throwable 子类、可解析且不重复。
-     */
-    private static boolean isThrowsListValid(PsiMethod method) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validateThrowsList(PsiMethod method) {
         PsiClassType[] thrownTypes = method.getThrowsList().getReferencedTypes();
         Set<String> names = new HashSet<>();
 
@@ -402,29 +345,22 @@ public final class MethodValidationUtil {
 
         for (PsiClassType thrownType : thrownTypes) {
             if (!isTypeResolvable(thrownType)) {
-                log.warn("throws 类型不可解析，跳过：{} -> {}", methodKey, thrownType.getCanonicalText());
-                return false;
+                return "Throws type cannot be resolved";
             }
             PsiClass resolved = thrownType.resolve();
             if (throwableClass != null && resolved != null && !resolved.isInheritor(throwableClass, true)) {
-                log.warn("throws 类型不是 Throwable 子类，跳过：{} -> {}", methodKey, thrownType.getCanonicalText());
-                return false;
+                return "Throws declaration is not a Throwable subtype";
             }
             String name = thrownType.getCanonicalText();
             if (!names.add(name)) {
-                log.warn("throws 类型重复，跳过：{} -> {}", methodKey, name);
-                return false;
+                return "Duplicate throws declaration";
             }
         }
 
-        return true;
+        return null;
     }
 
-    /**
-     * 方法体合法性校验：抽象/注解/native 等情况不允许方法体；需要方法体的必须存在。
-     */
-    private static boolean isMethodBodyValid(PsiMethod method, PsiClass containingClass) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validateMethodBody(PsiMethod method, PsiClass containingClass) {
         PsiCodeBlock body = method.getBody();
         boolean isAbstract = method.hasModifierProperty(PsiModifier.ABSTRACT);
         boolean isNative = method.hasModifierProperty(PsiModifier.NATIVE);
@@ -433,99 +369,67 @@ public final class MethodValidationUtil {
         boolean isStatic = method.hasModifierProperty(PsiModifier.STATIC);
 
         if (isAbstract && body != null) {
-            log.warn("抽象方法不允许包含方法体，跳过：{}", methodKey);
-            return false;
+            return "Abstract method should not declare a body";
         }
 
         if (containingClass.isAnnotationType() && body != null) {
-            log.warn("注解方法不允许包含方法体，跳过：{}", methodKey);
-            return false;
+            return "Annotation method should not declare a body";
         }
 
         if (isNative && body != null) {
-            log.warn("native 方法不允许包含方法体，跳过：{}", methodKey);
-            return false;
+            return "Native method should not declare a body";
         }
 
-        // 接口 default/private/static 方法必须有方法体
         if (containingClass.isInterface() && !containingClass.isAnnotationType()) {
             if ((isDefault || isPrivate || isStatic) && body == null) {
-                log.warn("接口 default/private/static 方法缺少方法体，跳过：{}", methodKey);
-                return false;
+                return "Interface method body is missing";
             }
         }
 
-        // 普通类中非抽象、非 native 方法必须有方法体
         if (!containingClass.isInterface() && !isAbstract && !isNative && body == null) {
-            log.warn("非抽象方法缺少方法体，跳过：{}", methodKey);
-            return false;
+            return "Concrete method body is missing";
         }
 
-        return true;
+        return null;
     }
 
-    /**
-     * &#064;Override  注解合法性校验：如果标注 @Override，必须实际覆盖父类/接口方法。
-     */
-    private static boolean isOverrideValid(PsiMethod method) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
-        if (AnnotationUtil.isAnnotated(method, CommonClassNames.JAVA_LANG_OVERRIDE, 0)) {
-            PsiMethod[] superMethods = method.findSuperMethods();
-            if (superMethods.length == 0) {
-                log.warn("@Override 未覆盖任何方法，跳过：{}", methodKey);
-                return false;
-            }
+    private static String validateOverride(PsiMethod method) {
+        if (AnnotationUtil.isAnnotated(method, CommonClassNames.JAVA_LANG_OVERRIDE, 0)
+                && method.findSuperMethods().length == 0) {
+            return "@Override does not actually override any method";
         }
-        return true;
+        return null;
     }
 
-    /**
-     * 校验类内方法签名唯一性，避免与同类方法签名冲突。
-     */
-    private static boolean isSignatureUniqueInClass(PsiMethod method, PsiClass containingClass) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validateUniqueSignature(PsiMethod method, PsiClass containingClass) {
         PsiMethod[] methods = containingClass.findMethodsByName(method.getName(), false);
         for (PsiMethod other : methods) {
             if (other == method) {
                 continue;
             }
             if (MethodSignatureUtil.areSignaturesEqual(method, other)) {
-                log.warn("方法签名与同类方法冲突，跳过：{}", methodKey);
-                return false;
+                return "Method signature conflicts with another method in the same class";
             }
         }
-        return true;
+        return null;
     }
 
-    /**
-     * PSI 引用解析校验：方法调用、类型引用、一般引用必须可解析。
-     */
-    private static boolean isPsiReferencesResolved(PsiMethod method) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
+    private static String validatePsiReferences(PsiMethod method) {
         if (!PsiTreeUtil.findChildrenOfType(method, PsiErrorElement.class).isEmpty()) {
-            log.warn("方法存在语法错误，跳过：{}", methodKey);
-            return false;
+            return "Method contains syntax errors";
         }
 
         Collection<PsiMethodCallExpression> calls = PsiTreeUtil.findChildrenOfType(method, PsiMethodCallExpression.class);
         for (PsiMethodCallExpression call : calls) {
-            if (call == null) {
-                continue;
-            }
-            if (call.resolveMethod() == null) {
-                log.warn("方法存在未解析的方法调用，跳过：{}", methodKey);
-                return false;
+            if (call != null && call.resolveMethod() == null) {
+                return "Method contains an unresolved method call";
             }
         }
 
         Collection<PsiJavaCodeReferenceElement> typeRefs = PsiTreeUtil.findChildrenOfType(method, PsiJavaCodeReferenceElement.class);
         for (PsiJavaCodeReferenceElement typeRef : typeRefs) {
-            if (typeRef == null) {
-                continue;
-            }
-            if (typeRef.resolve() == null) {
-                log.warn("方法存在未解析的类型引用，跳过：{}", methodKey);
-                return false;
+            if (typeRef != null && typeRef.resolve() == null) {
+                return "Method contains an unresolved type reference";
             }
         }
 
@@ -536,41 +440,34 @@ public final class MethodValidationUtil {
             }
             PsiElement resolved = ref.resolve();
             if (resolved == null) {
-                log.warn("方法包含未解析的引用，跳过：{} -> {}", methodKey, ref.getText());
-                return false;
+                return "Method contains an unresolved reference";
             }
         }
 
-        return true;
+        return null;
     }
 
-    /**
-     * 非 void 方法的 return 校验：缺少 return 且无 throw 的情况视为非法。
-     * 该校验为“近似控制流”判断，避免明显缺失返回语句的错误。
-     */
-    private static boolean isReturnStatementValid(PsiMethod method) {
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
-
-        // Interface/abstract/native declarations usually have no body and should not be checked here.
+    private static String validateReturnStatements(PsiMethod method) {
         PsiCodeBlock body = method.getBody();
         if (body == null) {
-            return true;
+            return null;
         }
 
         PsiType returnType = method.getReturnType();
         if (returnType == null || (returnType instanceof PsiPrimitiveType && "void".equals(returnType.getCanonicalText()))) {
-            return true;
+            return null;
         }
 
-        Collection<PsiReturnStatement> returns = PsiTreeUtil.findChildrenOfType(method, PsiReturnStatement.class);
-        returns = returns.stream().filter(rs -> isReturnOwnedByMethod(method, rs)).toList();
+        Collection<PsiReturnStatement> returns = PsiTreeUtil.findChildrenOfType(method, PsiReturnStatement.class)
+                .stream()
+                .filter(rs -> isReturnOwnedByMethod(method, rs))
+                .toList();
         if (returns.isEmpty()) {
             Collection<PsiThrowStatement> throwsStmts = PsiTreeUtil.findChildrenOfType(method, PsiThrowStatement.class);
             if (throwsStmts.isEmpty()) {
-                log.warn("非 void 方法缺少 return/throw，跳过：{}", methodKey);
-                return false;
+                return "Non-void method has neither return nor throw statement";
             }
-            return true;
+            return null;
         }
 
         for (PsiReturnStatement rs : returns) {
@@ -579,18 +476,13 @@ public final class MethodValidationUtil {
             }
             PsiExpression rv = rs.getReturnValue();
             if (rv == null) {
-                log.warn("非 void 方法存在空 return 语句，跳过：{}，return文本='{}'", methodKey, rs.getText());
-                return false;
+                return "Non-void method contains an empty return statement";
             }
         }
 
-        return true;
+        return null;
     }
 
-    /**
-     * Keep only return statements that belong to the current method body.
-     * Excludes returns in local/anonymous classes and lambda expressions.
-     */
     private static boolean isReturnOwnedByMethod(PsiMethod method, PsiReturnStatement rs) {
         PsiMethod ownerMethod = PsiTreeUtil.getParentOfType(rs, PsiMethod.class);
         if (ownerMethod != method) {
@@ -601,9 +493,6 @@ public final class MethodValidationUtil {
         return lambdaOwner == null;
     }
 
-    /**
-     * 判断类型是否可解析。原始类型与数组类型直接通过；类类型必须能 resolve。
-     */
     private static boolean isTypeResolvable(PsiType type) {
         if (type == null) {
             return false;
@@ -614,26 +503,20 @@ public final class MethodValidationUtil {
         if (type instanceof PsiClassType psiClassType) {
             return psiClassType.resolve() != null;
         }
-        // 原始类型等直接视为可解析
         return true;
     }
 
-    /**
-     * 注解方法返回类型允许范围校验。
-     */
     private static boolean isAnnotationReturnTypeAllowed(PsiType returnType) {
-        if (returnType instanceof PsiArrayType) {
-            // 注解允许一维数组
-            PsiType component = ((PsiArrayType) returnType).getComponentType();
-            return isAnnotationReturnTypeAllowed(component);
+        if (returnType instanceof PsiArrayType arrayType) {
+            return isAnnotationReturnTypeAllowed(arrayType.getComponentType());
         }
 
         if (returnType instanceof PsiPrimitiveType) {
             return true;
         }
 
-        if (returnType instanceof PsiClassType) {
-            PsiClass resolved = ((PsiClassType) returnType).resolve();
+        if (returnType instanceof PsiClassType classType) {
+            PsiClass resolved = classType.resolve();
             if (resolved == null) {
                 return false;
             }

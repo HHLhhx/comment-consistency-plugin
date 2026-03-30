@@ -1,10 +1,23 @@
 package com.nju.comment.util;
 
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiComment;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiManager;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiParameter;
+import com.intellij.psi.PsiType;
+import com.intellij.psi.PsiWhiteSpace;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.nju.comment.pojo.MethodRecord;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collection;
 import java.util.StringJoiner;
 
 public final class MethodRecordUtil {
@@ -34,6 +47,17 @@ public final class MethodRecordUtil {
     public static String getFilePath(PsiMethod method) {
         if (method == null) return null;
         return ReadAction.compute(() -> getFilePathUnsafely(method));
+    }
+
+    public static long getSourceStamp(PsiMethod method) {
+        if (method == null) return -1L;
+        return ReadAction.compute(() -> {
+            if (!method.isValid()) return -1L;
+            PsiFile psiFile = method.getContainingFile();
+            if (psiFile == null) return -1L;
+            VirtualFile vf = psiFile.getVirtualFile();
+            return vf != null ? vf.getModificationStamp() : -1L;
+        });
     }
 
     private static String buildMethodKeyUnsafely(PsiMethod method) {
@@ -77,12 +101,45 @@ public final class MethodRecordUtil {
         return vf != null ? vf.getPath() : null;
     }
 
-    /**
-     * 获取方法文本内容，去除注释部分
-     *
-     * @param method 方法
-     * @return 方法文本内容
-     */
+    public static PsiMethod resolveMethod(Project project, MethodRecord record) {
+        if (project == null || record == null || record.getFilePath() == null) {
+            return null;
+        }
+        return ReadAction.compute(() -> resolveMethodUnsafely(project, record));
+    }
+
+    private static PsiMethod resolveMethodUnsafely(Project project, MethodRecord record) {
+        VirtualFile vf = LocalFileSystem.getInstance().findFileByPath(record.getFilePath());
+        if (vf == null || !vf.isValid()) {
+            return null;
+        }
+        PsiFile psiFile = PsiManager.getInstance(project).findFile(vf);
+        if (psiFile == null) {
+            return null;
+        }
+        Collection<PsiMethod> methods = PsiTreeUtil.collectElementsOfType(psiFile, PsiMethod.class);
+        for (PsiMethod method : methods) {
+            String key = buildMethodKeyUnsafely(method);
+            if (record.getKey().equals(key)) {
+                return method;
+            }
+        }
+        return null;
+    }
+
+    public static PsiFile resolvePsiFile(Project project, String filePath) {
+        if (project == null || filePath == null || filePath.isBlank()) {
+            return null;
+        }
+        return ReadAction.compute(() -> {
+            VirtualFile vf = LocalFileSystem.getInstance().findFileByPath(filePath);
+            if (vf == null || !vf.isValid()) {
+                return null;
+            }
+            return PsiManager.getInstance(project).findFile(vf);
+        });
+    }
+
     public static @NotNull String getMethodTextWithoutComments(PsiMethod method) {
         return ReadAction.compute(() -> {
             PsiElement firstChild = method.getFirstChild();

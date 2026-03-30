@@ -72,7 +72,6 @@ public final class NewMethodWithCommentState implements MethodState {
                     context.getCurrentMethod(),
                     context.getCurrentComment()
             );
-            context.ensurePointer(record);
             context.syncFilePath(record);
             record.setStagedMethod(context.getCurrentMethod());
             record.clearStagedComment();

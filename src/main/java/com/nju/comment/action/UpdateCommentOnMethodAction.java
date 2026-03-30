@@ -42,7 +42,7 @@ public class UpdateCommentOnMethodAction extends AnAction {
         PsiElement element = ReadAction.compute(() -> psiFile.findElementAt(offset));
         PsiMethod method = ReadAction.compute(() -> PsiTreeUtil.getParentOfType(element, PsiMethod.class));
 
-        if (!MethodValidationUtil.isValid(method)) {
+        if (!MethodValidationUtil.isQuicklyEligible(method)) {
             return;
         }
 
@@ -93,7 +93,7 @@ public class UpdateCommentOnMethodAction extends AnAction {
             }
             PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
 
-            if (!MethodValidationUtil.isValid(method)) {
+            if (!MethodValidationUtil.isQuicklyEligible(method)) {
                 return false;
             }
 

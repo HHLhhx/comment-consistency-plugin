@@ -1,8 +1,5 @@
 package com.nju.comment.pojo;
 
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.SmartPointerManager;
-import com.intellij.psi.SmartPsiElementPointer;
 import com.nju.comment.util.MethodRecordUtil;
 import lombok.Data;
 
@@ -11,7 +8,6 @@ import java.time.Instant;
 @Data
 public class MethodRecord {
     String key;
-    transient SmartPsiElementPointer<PsiMethod> pointer;
     volatile MethodStatus status;
 
     volatile String oldMethod;
@@ -24,6 +20,7 @@ public class MethodRecord {
 
     volatile String stagedMethod;
     volatile String stagedComment;
+    volatile MethodValidationResult validationResult;
 
     public MethodRecord(String qualifiedNameContainClass, String signature, String oldMethod, String oldComment) {
         this.qualifiedNameContainClass = qualifiedNameContainClass;
@@ -35,10 +32,6 @@ public class MethodRecord {
         this.stagedComment = null;
 
         this.key = MethodRecordUtil.buildMethodKey(qualifiedNameContainClass, signature);
-    }
-
-    public void createMethodPointer(PsiMethod psiMethod) {
-        this.pointer = SmartPointerManager.getInstance(psiMethod.getProject()).createSmartPsiElementPointer(psiMethod);
     }
 
     public void touch() {
@@ -67,5 +60,9 @@ public class MethodRecord {
     public void clearStagedMethod() {
         this.stagedMethod = null;
         touch();
+    }
+
+    public boolean hasFreshValidation(long sourceStamp) {
+        return validationResult != null && validationResult.matchesSourceStamp(sourceStamp);
     }
 }

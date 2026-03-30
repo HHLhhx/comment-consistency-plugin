@@ -5,7 +5,10 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiManager;
+import com.intellij.psi.PsiMethod;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -16,7 +19,9 @@ import com.nju.comment.dto.request.CommentReqTag;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.pojo.GenerateOptions;
 import com.nju.comment.pojo.MethodRecord;
+import com.nju.comment.pojo.MethodRefreshSnapshot;
 import com.nju.comment.pojo.MethodStatus;
+import com.nju.comment.pojo.MethodValidationResult;
 import com.nju.comment.util.MethodRecordUtil;
 import com.nju.comment.util.MethodValidationUtil;
 import com.nju.comment.util.TextProcessUtil;
@@ -24,14 +29,14 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
-/**
- * 方法级刷新 / 生成 / 变更检测的业务逻辑
- */
 @Slf4j
 public class MethodRefreshService {
 
@@ -40,6 +45,7 @@ public class MethodRefreshService {
     private final BooleanSupplier autoUpdateCheck;
     private final Consumer<PsiFile> gutterRefreshRequester;
     private final Semaphore refreshLimiter = new Semaphore(Constant.MAX_CONCURRENT_REFRESH);
+    private final Set<String> inFlightFiles = ConcurrentHashMap.newKeySet();
 
     public MethodRefreshService(Project project,
                                 MethodHistoryManager historyManager,
@@ -51,74 +57,75 @@ public class MethodRefreshService {
         this.gutterRefreshRequester = gutterRefreshRequester;
     }
 
-    // ==================== 刷新入口（含线程编排） ====================
-
-    /**
-     * 刷新项目中所有方法历史记录（异步，带智能等待）
-     */
-    public void refreshAll() {
+    public void refreshAll(boolean allowGeneration) {
         DumbService.getInstance(project).runWhenSmart(() ->
-                ApplicationManager.getApplication().executeOnPooledThread(this::doRefreshAll));
+                ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshAll(allowGeneration)));
     }
 
-    /**
-     * 刷新单文件中所有方法历史记录
-     */
-    public void refreshFile(VirtualFile file) {
+    public void refreshFile(VirtualFile file, boolean allowGeneration) {
+        if (file == null || !file.exists() || !"java".equalsIgnoreCase(file.getExtension())) {
+            return;
+        }
+        String path = file.getPath();
+        if (!inFlightFiles.add(path)) {
+            return;
+        }
+
         DumbService.getInstance(project).runWhenSmart(() ->
-                ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshFile(file)));
+                ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                    boolean acquired = false;
+                    try {
+                        refreshLimiter.acquire();
+                        acquired = true;
+                        doRefreshFile(file, allowGeneration);
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        if (acquired) {
+                            refreshLimiter.release();
+                        }
+                        inFlightFiles.remove(path);
+                    }
+                }));
     }
 
-    /**
-     * 刷新单方法历史记录
-     */
-    public void refreshMethod(PsiMethod method) {
+    public void refreshMethod(PsiMethod method, boolean allowGeneration) {
         DumbService.getInstance(project).runWhenSmart(() ->
-                ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshMethodHistory(method)));
+                ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshSingleMethod(method, allowGeneration)));
     }
 
-    // ==================== 生成 / 预检 ====================
-
-    /**
-     * 为没有注释的方法发起注释生成
-     */
     public void generateComment(PsiMethod method) {
-        if (method == null) {
-            log.warn("方法为空，无法生成注释");
+        MethodRefreshSnapshot snapshot = buildMethodSnapshot(method);
+        if (snapshot == null || snapshot.getValidationResult() == null || !snapshot.getValidationResult().isValid()) {
             return;
         }
 
-        String methodKey = MethodRecordUtil.buildMethodKey(method);
-        if (!MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(preCheckChange(method))) {
-            log.info("方法不处于可生成注释状态，跳过生成：{}", methodKey);
-            return;
-        }
-
-        doRefreshMethodHistory(method);
-
-        MethodRecord record = historyManager.findByKey(methodKey);
+        doProcessSnapshot(snapshot, getVirtualFile(method), false);
+        MethodRecord record = historyManager.findByKey(snapshot.getMethodKey());
         if (record == null || !MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(record.getStatus())) {
-            log.info("方法不处于可生成注释状态，跳过生成：{}", methodKey);
             return;
         }
 
         record.setStatus(MethodStatus.GENERATING);
         record.touch();
         historyManager.save(record);
-        refreshMethod(method);
+        doProcessSnapshot(snapshot, getVirtualFile(method), true);
     }
 
-    /**
-     * 检查方法变更类型（供 Gutter / Action 实时判断）
-     */
     public MethodStatus preCheckChange(PsiMethod method) {
-        if (method == null) {
-            log.warn("方法为空，无法检查变更");
+        if (!MethodValidationUtil.isQuicklyEligible(method)) {
             return null;
         }
 
         String methodKey = MethodRecordUtil.buildMethodKey(method);
         MethodRecord record = historyManager.findByKey(methodKey);
+        long sourceStamp = MethodRecordUtil.getSourceStamp(method);
+        if (record != null && record.hasFreshValidation(sourceStamp)) {
+            MethodValidationResult validationResult = record.getValidationResult();
+            if (validationResult != null && !validationResult.isValid()) {
+                return null;
+            }
+        }
 
         String curComment = ReadAction.compute(() -> {
             PsiDocComment pdc = method.getDocComment();
@@ -133,7 +140,9 @@ public class MethodRefreshService {
             return curComment.isEmpty()
                     ? MethodStatus.NEW_METHOD_WITHOUT_COMMENT
                     : MethodStatus.NEW_METHOD_WITH_COMMENT;
-        } else if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(record.getStatus())
+        }
+
+        if (MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(record.getStatus())
                 || MethodStatus.NEW_METHOD_WITH_COMMENT.equals(record.getStatus())) {
             return record.getStatus();
         }
@@ -152,119 +161,236 @@ public class MethodRefreshService {
         return MethodStatus.UNCHANGED;
     }
 
-    // ==================== PSI 收集 ====================
-
-    /**
-     * 收集项目中所有 Java 方法
-     */
-    public List<PsiMethod> collectAllMethods() {
-        return ReadAction.compute(() -> {
-            List<PsiMethod> result = new ArrayList<>();
-            Collection<VirtualFile> files = FilenameIndex.getAllFilesByExt(
-                    project, "java", GlobalSearchScope.projectScope(project));
-            PsiManager psiManager = PsiManager.getInstance(project);
-            for (VirtualFile vf : files) {
-                PsiFile psiFile = psiManager.findFile(vf);
-                if (psiFile == null) continue;
-                result.addAll(PsiTreeUtil.collectElementsOfType(psiFile, PsiMethod.class));
-            }
-            return result;
-        });
+    public MethodStatus getCachedStatus(PsiMethod method) {
+        if (!MethodValidationUtil.isQuicklyEligible(method)) {
+            return null;
+        }
+        String methodKey = MethodRecordUtil.buildMethodKey(method);
+        MethodRecord record = historyManager.findByKey(methodKey);
+        if (record == null) {
+            return null;
+        }
+        long sourceStamp = MethodRecordUtil.getSourceStamp(method);
+        if (!record.hasFreshValidation(sourceStamp)) {
+            return null;
+        }
+        MethodValidationResult validationResult = record.getValidationResult();
+        if (validationResult == null || !validationResult.isValid()) {
+            return null;
+        }
+        return record.getStatus();
     }
 
-    // ==================== 内部实现 ====================
-
-    private void doRefreshAll() {
-        log.info("刷新项目中所有方法历史记录");
-        List<PsiMethod> methods = collectAllMethods();
-        log.info("共找到方法数量：{}", methods.size());
-        submitRefreshBatch(methods);
+    private void doRefreshAll(boolean allowGeneration) {
+        List<VirtualFile> files = collectAllJavaFiles();
+        for (VirtualFile file : files) {
+            refreshFile(file, allowGeneration);
+        }
     }
 
-    private void doRefreshFile(VirtualFile file) {
-        if (file == null || !file.exists() || !"java".equalsIgnoreCase(file.getExtension())) {
-            log.warn("文件无效，无法刷新方法历史记录: {}", file);
+    private List<VirtualFile> collectAllJavaFiles() {
+        return ReadAction.compute(() ->
+                new ArrayList<>(FilenameIndex.getAllFilesByExt(
+                        project, "java", GlobalSearchScope.projectScope(project))));
+    }
+
+    private void doRefreshFile(VirtualFile file, boolean allowGeneration) {
+        FileRefreshPayload payload = buildFilePayload(file);
+        if (payload == null) {
             return;
         }
 
-        log.info("刷新文件方法历史记录，path: {}", file.getPath());
-        List<PsiMethod> methods = ReadAction.compute(() -> {
-            PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
-            if (psiFile == null) return List.of();
-            return new ArrayList<>(PsiTreeUtil.collectElementsOfType(psiFile, PsiMethod.class));
-        });
-        log.info("文件中找到方法数量：{}", methods.size());
-        submitRefreshBatch(methods);
-    }
+        boolean changed = false;
+        for (MethodRefreshSnapshot snapshot : payload.snapshots()) {
+            changed |= doProcessSnapshot(snapshot, file, allowGeneration);
+        }
+        changed |= historyManager.clearMissingMethodHistories(payload.filePath(), payload.currentMethodKeys());
 
-    /**
-     * 带并发限流的批量提交
-     */
-    private void submitRefreshBatch(List<PsiMethod> methods) {
-        for (PsiMethod method : methods) {
-            ApplicationManager.getApplication().executeOnPooledThread(() -> {
-                try {
-                    refreshLimiter.acquire();
-                    doRefreshMethodHistory(method);
-                } catch (InterruptedException ignored) {
-                    Thread.currentThread().interrupt();
-                } finally {
-                    refreshLimiter.release();
-                }
-            });
+        if (changed) {
+            requestGutterRefresh(file);
         }
     }
 
-    /**
-     * 刷新单方法历史。
-     * 同一方法下「重复触发以最初为准、修改后再触发以最近为准」由 CommentGeneratorClient 按内容指纹保证。
-     */
-    private void doRefreshMethodHistory(PsiMethod method) {
-        ReadAction.run(() -> {
-            if (!MethodValidationUtil.isValid(method)) return;
+    private void doRefreshSingleMethod(PsiMethod method, boolean allowGeneration) {
+        MethodRefreshSnapshot snapshot = buildMethodSnapshot(method);
+        if (snapshot == null) {
+            return;
+        }
+        boolean changed = doProcessSnapshot(snapshot, getVirtualFile(method), allowGeneration);
+        if (changed) {
+            requestGutterRefresh(getVirtualFile(method));
+        }
+    }
 
-            PsiFile psiFile = method.getContainingFile();
-            String methodKey = MethodRecordUtil.buildMethodKey(method);
-            try {
-                historyManager.updateMethodHistoryAsync(method, (context, status) -> {
-                    CommentReqTag tag;
-                    if (MethodStatus.TO_BE_GENERATE.equals(status)) {
-                        tag = CommentReqTag.GENERATE;
-                    } else {
-                        tag = CommentGeneratorClient.isRagEnabled()
-                                ? CommentReqTag.UPDATE_WITH_RAG
-                                : CommentReqTag.UPDATE_WITHOUT_RAG;
-                    }
-                    GenerateOptions options = GenerateOptions.builder()
-                            .modelName(CommentGeneratorClient.getSelectedModel())
-                            .tag(tag)
-                            .ragExampleNum(CommentGeneratorClient.getRagExampleNum())
-                            .build();
-
-                    CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {
-                        if (generatedComment == null) return;
-                        String processed = TextProcessUtil.processComment(generatedComment);
-
-                        ApplicationManager.getApplication().executeOnPooledThread(() -> {
-                            MethodRecord record = historyManager.findByKey(methodKey);
-                            if (record != null) {
-                                record.setStagedComment(processed);
-                                if (status.equals(MethodStatus.TO_BE_UPDATE)) {
-                                    record.setStatus(MethodStatus.TO_BE_UPDATE);
-                                } else if (status.equals(MethodStatus.TO_BE_GENERATE)) {
-                                    record.setStatus(MethodStatus.TO_BE_GENERATE);
-                                }
-                                record.touch();
-                                historyManager.save(record);
-                                gutterRefreshRequester.accept(psiFile);
-                            }
-                        });
-                    }, project);
-                }, autoUpdateCheck.getAsBoolean());
-                gutterRefreshRequester.accept(psiFile);
-            } catch (Exception ex) {
-                log.warn("刷新方法历史记录失败，方法签名：{}", methodKey, ex);
+    private boolean doProcessSnapshot(MethodRefreshSnapshot snapshot, VirtualFile file, boolean allowGeneration) {
+        return historyManager.updateMethodHistoryAsync(snapshot, (context, status) -> {
+            CommentReqTag tag;
+            if (MethodStatus.TO_BE_GENERATE.equals(status)) {
+                tag = CommentReqTag.GENERATE;
+            } else {
+                tag = CommentGeneratorClient.isRagEnabled()
+                        ? CommentReqTag.UPDATE_WITH_RAG
+                        : CommentReqTag.UPDATE_WITHOUT_RAG;
             }
+            GenerateOptions options = GenerateOptions.builder()
+                    .modelName(CommentGeneratorClient.getSelectedModel())
+                    .tag(tag)
+                    .ragExampleNum(CommentGeneratorClient.getRagExampleNum())
+                    .build();
+
+            String methodKey = snapshot.getMethodKey();
+            CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {
+                if (generatedComment == null) return;
+                String processed = TextProcessUtil.processComment(generatedComment);
+
+                ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                    MethodRecord record = historyManager.findByKey(methodKey);
+                    if (record == null) {
+                        return;
+                    }
+
+                    MethodStatus previousStatus = record.getStatus();
+                    String previousComment = record.getStagedComment();
+
+                    record.setStagedComment(processed);
+                    if (status.equals(MethodStatus.TO_BE_UPDATE)) {
+                        record.setStatus(MethodStatus.TO_BE_UPDATE);
+                    } else if (status.equals(MethodStatus.TO_BE_GENERATE)) {
+                        record.setStatus(MethodStatus.TO_BE_GENERATE);
+                    }
+                    record.touch();
+                    historyManager.save(record);
+
+                    if (previousStatus != record.getStatus()
+                            || !TextProcessUtil.safeTrimNullable(previousComment)
+                            .equals(TextProcessUtil.safeTrimNullable(processed))) {
+                        requestGutterRefresh(file);
+                    }
+                });
+            }, project);
+        }, allowGeneration);
+    }
+
+    private FileRefreshPayload buildFilePayload(VirtualFile file) {
+        return ReadAction.compute(() -> {
+            if (file == null || !file.isValid()) {
+                return null;
+            }
+            PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
+            if (psiFile == null) {
+                return null;
+            }
+
+            Collection<PsiMethod> methods = PsiTreeUtil.collectElementsOfType(psiFile, PsiMethod.class);
+            List<MethodRefreshSnapshot> snapshots = new ArrayList<>();
+            Set<String> currentKeys = new HashSet<>();
+            for (PsiMethod method : methods) {
+                MethodRefreshSnapshot snapshot = buildMethodSnapshotUnsafely(method);
+                if (snapshot == null) {
+                    continue;
+                }
+                snapshots.add(snapshot);
+                currentKeys.add(snapshot.getMethodKey());
+            }
+            return new FileRefreshPayload(file.getPath(), snapshots, currentKeys);
         });
+    }
+
+    private MethodRefreshSnapshot buildMethodSnapshot(PsiMethod method) {
+        return ReadAction.compute(() -> buildMethodSnapshotUnsafely(method));
+    }
+
+    private MethodRefreshSnapshot buildMethodSnapshotUnsafely(PsiMethod method) {
+        if (method == null || !method.isValid()) {
+            return null;
+        }
+        String filePath = getFilePathUnsafely(method);
+        String qualifiedName = getQualifiedNameUnsafely(method);
+        String signature = getSignatureUnsafely(method);
+        if (filePath == null || qualifiedName.isBlank() || signature == null || signature.isBlank()) {
+            return null;
+        }
+
+        PsiDocComment docComment = method.getDocComment();
+        String currentComment = docComment != null ? docComment.getText().trim() : "";
+        String currentMethod = MethodRecordUtil.getMethodTextWithoutComments(method);//自己改的，原调用getMethodTextWithoutCommentsUnsafely
+        MethodValidationResult validationResult = MethodValidationUtil.validateCompilable(method);
+
+        return MethodRefreshSnapshot.builder()
+                .filePath(filePath)
+                .qualifiedName(qualifiedName)
+                .signature(signature)
+                .currentMethod(currentMethod)
+                .currentComment(currentComment)
+                .validationResult(validationResult)
+                .build();
+    }
+
+    private void requestGutterRefresh(VirtualFile file) {
+        if (file == null || !file.isValid()) {
+            return;
+        }
+        PsiFile psiFile = ReadAction.compute(() -> PsiManager.getInstance(project).findFile(file));
+        if (psiFile != null && psiFile.isValid()) {
+            gutterRefreshRequester.accept(psiFile);
+        }
+    }
+
+    private VirtualFile getVirtualFile(PsiMethod method) {
+        return ReadAction.compute(() -> {
+            if (method == null || !method.isValid()) {
+                return null;
+            }
+            PsiFile psiFile = method.getContainingFile();
+            return psiFile != null ? psiFile.getVirtualFile() : null;
+        });
+    }
+
+    private String getFilePathUnsafely(PsiMethod method) {
+        PsiFile psiFile = method.getContainingFile();
+        if (psiFile == null) {
+            return null;
+        }
+        VirtualFile vf = psiFile.getVirtualFile();
+        return vf != null ? vf.getPath() : null;
+    }
+
+    private String getQualifiedNameUnsafely(PsiMethod method) {
+        if (method == null) {
+            return "";
+        }
+        if (method.getContainingClass() == null) {
+            return "";
+        }
+        String qualifiedName = method.getContainingClass().getQualifiedName();
+        return qualifiedName != null ? qualifiedName : "";
+    }
+
+    private String getSignatureUnsafely(PsiMethod method) {
+        return MethodRecordUtil.getMethodSignature(method);
+    }
+
+    private String getMethodTextWithoutCommentsUnsafely(PsiMethod method) {
+        PsiFile containingFile = method.getContainingFile();
+        if (containingFile == null) {
+            return "";
+        }
+        PsiDocumentManager.getInstance(project).commitAllDocuments();
+        var firstChild = method.getFirstChild();
+        while (firstChild instanceof com.intellij.psi.PsiComment
+                || firstChild instanceof com.intellij.psi.PsiWhiteSpace) {
+            firstChild = firstChild.getNextSibling();
+        }
+        if (firstChild == null) {
+            return "";
+        }
+        int methodStartOffset = firstChild.getTextRange().getStartOffset();
+        int endOffset = method.getTextRange().getEndOffset();
+        return containingFile.getText().substring(methodStartOffset, endOffset).trim();
+    }
+
+    private record FileRefreshPayload(String filePath,
+                                      List<MethodRefreshSnapshot> snapshots,
+                                      Set<String> currentMethodKeys) {
     }
 }

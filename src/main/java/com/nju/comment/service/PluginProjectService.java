@@ -4,36 +4,34 @@ import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.Service;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiManager;
+import com.intellij.psi.PsiTreeChangeAdapter;
+import com.intellij.psi.PsiTreeChangeEvent;
+import com.intellij.psi.PsiMethod;
 import com.nju.comment.client.global.CommentGeneratorClient;
 import com.nju.comment.constant.Constant;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.history.MethodHistoryRepositoryImpl;
 import com.nju.comment.pojo.MethodStatus;
-
-import java.util.List;
-import java.util.concurrent.*;
-import java.util.function.Consumer;
-
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.function.Consumer;
 
-/**
- * 项目级核心服务：管理用户生命周期、自动化调度与 Gutter 图标去抖刷新。
- * <p>
- * 方法级的刷新 / 生成 / 变更检测逻辑委托给 {@link MethodRefreshService}。
- */
 @Slf4j
 @Service(Service.Level.PROJECT)
 public final class PluginProjectService implements Disposable {
 
     private static final String DEFAULT_BASE_URL = Constant.CLIENT_DEFAULT_BASE_URL;
+    private static final long DIRTY_REFRESH_DEBOUNCE_MS = 400L;
 
     private final Project project;
     private final MethodHistoryRepositoryImpl history;
@@ -47,38 +45,25 @@ public final class PluginProjectService implements Disposable {
     @Getter
     private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
 
-    /**
-     * 去抖：每个文件对应一个延迟 restart 任务，新变更重置计时
-     */
-    private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingRefreshes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingGutterRefreshes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, VirtualFile> dirtyFiles = new ConcurrentHashMap<>();
 
-    /**
-     * 保护 autoScheduler / autoUpdateTask / autoCleanTask / userSettings 的锁
-     */
     private final Object scheduleLock = new Object();
 
     @Getter
     private volatile UserSettingsManager userSettings;
 
     private ScheduledExecutorService autoScheduler;
-    private ScheduledFuture<?> autoUpdateTask;
     private ScheduledFuture<?> autoCleanTask;
+    private ScheduledFuture<?> dirtyRefreshTask;
+    private volatile boolean autoUpdateEnabled;
 
-    /**
-     * UI 层注册的强制登出回调（切换到登录界面）
-     */
     @Setter
     private volatile Runnable onForceLogoutCallback;
 
-    /**
-     * UI 层注册的全局认证状态变更回调（跨项目同步登录/登出/切号）
-     */
     @Setter
     private volatile Runnable onAuthStateChangedCallback;
 
-    /**
-     * UI 层注册的全局配置变更回调（跨项目同步模型/RAG/自动更新）
-     */
     @Setter
     private volatile Runnable onGlobalSettingsChangedCallback;
 
@@ -92,8 +77,6 @@ public final class PluginProjectService implements Disposable {
                 this::requestGutterIconRefresh);
     }
 
-    // ==================== 自动化调度 ====================
-
     public void setAutoUpdateEnabled(boolean enabled) {
         synchronized (scheduleLock) {
             setAutoUpdateEnabledLocked(enabled);
@@ -102,7 +85,7 @@ public final class PluginProjectService implements Disposable {
 
     public boolean isAutoUpdateEnabled() {
         synchronized (scheduleLock) {
-            return autoUpdateTask != null && !autoUpdateTask.isCancelled();
+            return autoUpdateEnabled;
         }
     }
 
@@ -112,9 +95,6 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    /**
-     * 必须在持有 scheduleLock 时调用
-     */
     private void ensureSchedulerLocked() {
         if (autoScheduler == null || autoScheduler.isShutdown()) {
             autoScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -125,39 +105,19 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    /**
-     * 不加锁版本，供已持有 scheduleLock 的方法内部使用
-     */
     private void setAutoUpdateEnabledLocked(boolean enabled) {
-        if (enabled) {
-            ensureSchedulerLocked();
-            if (autoUpdateTask == null || autoUpdateTask.isCancelled()) {
-                autoUpdateTask = autoScheduler.scheduleWithFixedDelay(
-                        methodRefreshService::refreshAll,
-                        Constant.AUTO_UPDATE_INITIAL_DELAY_MS,
-                        Constant.AUTO_UPDATE_DELAY_MS, TimeUnit.MILLISECONDS);
-            }
-        } else if (autoUpdateTask != null) {
-            autoUpdateTask.cancel(false);
-            autoUpdateTask = null;
-        }
+        autoUpdateEnabled = enabled;
     }
 
-    /**
-     * 不加锁版本，供已持有 scheduleLock 的方法内部使用
-     */
     private void setAutoCleanEnabledLocked(boolean enabled) {
         if (enabled) {
             ensureSchedulerLocked();
             if (autoCleanTask == null || autoCleanTask.isCancelled()) {
                 autoCleanTask = autoScheduler.scheduleWithFixedDelay(
-                        () -> DumbService.getInstance(project).runWhenSmart(() ->
-                                ApplicationManager.getApplication().executeOnPooledThread(() -> {
-                                    List<PsiMethod> methods = methodRefreshService.collectAllMethods();
-                                    methodHistoryManager.clearDeletedMethodHistories(methods);
-                                })),
+                        methodHistoryManager::clearDeletedFileHistories,
                         Constant.AUTO_DELETE_INITIAL_DELAY_MS,
-                        Constant.AUTO_DELETE_DELAY_MS, TimeUnit.MILLISECONDS);
+                        Constant.AUTO_DELETE_DELAY_MS,
+                        TimeUnit.MILLISECONDS);
             }
         } else if (autoCleanTask != null) {
             autoCleanTask.cancel(false);
@@ -165,12 +125,6 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    // ==================== Gutter 图标刷新 ====================
-
-    /**
-     * 监听 Java 文件 PSI 变化，通过去抖延迟触发 DaemonCodeAnalyzer.restart，
-     * 解决编辑注释时 gutter 图标不刷新的问题。
-     */
     private void registerGutterRefreshListener() {
         PsiManager.getInstance(project).addPsiTreeChangeListener(new PsiTreeChangeAdapter() {
             @Override
@@ -179,46 +133,76 @@ public final class PluginProjectService implements Disposable {
                 if (file == null) return;
                 VirtualFile vf = file.getVirtualFile();
                 if (vf == null || !"java".equalsIgnoreCase(vf.getExtension())) return;
-                scheduleGutterRefresh(file);
+                markFileDirty(vf);
             }
         }, this);
     }
 
-    /**
-     * 去抖调度：取消同文件的前序待执行 restart，重新延迟后执行。
-     */
-    private void scheduleGutterRefresh(PsiFile file) {
-        String path = file.getVirtualFile().getPath();
+    private void markFileDirty(VirtualFile file) {
+        if (file == null || !file.isValid()) {
+            return;
+        }
+        synchronized (scheduleLock) {
+            ensureSchedulerLocked();
+            dirtyFiles.put(file.getPath(), file);
+            if (dirtyRefreshTask != null && !dirtyRefreshTask.isDone()) {
+                return;
+            }
+            dirtyRefreshTask = autoScheduler.schedule(this::consumeDirtyFiles,
+                    DIRTY_REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+        }
+    }
 
-        ScheduledFuture<?> prev = pendingRefreshes.get(path);
+    private void consumeDirtyFiles() {
+        List<VirtualFile> files = new ArrayList<>(dirtyFiles.values());
+        dirtyFiles.clear();
+        synchronized (scheduleLock) {
+            dirtyRefreshTask = null;
+        }
+        boolean allowGeneration = isAutoUpdateEnabled();
+        for (VirtualFile file : files) {
+            methodRefreshService.refreshFile(file, allowGeneration);
+        }
+    }
+
+    private void scheduleGutterRefresh(PsiFile file) {
+        VirtualFile virtualFile = file.getVirtualFile();
+        if (virtualFile == null) {
+            return;
+        }
+        String path = virtualFile.getPath();
+
+        ScheduledFuture<?> prev = pendingGutterRefreshes.get(path);
         if (prev != null) prev.cancel(false);
 
         synchronized (scheduleLock) {
             ensureSchedulerLocked();
             ScheduledFuture<?> task = autoScheduler.schedule(() ->
                     ApplicationManager.getApplication().invokeLater(() -> {
-                        pendingRefreshes.remove(path);
+                        pendingGutterRefreshes.remove(path);
                         if (file.isValid()) {
                             DaemonCodeAnalyzer.getInstance(project).restart(file);
                         }
                     }), Constant.GUTTER_REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
-            pendingRefreshes.put(path, task);
+            pendingGutterRefreshes.put(path, task);
         }
     }
 
-    /**
-     * 请求刷新指定文件的 gutter 图标（去抖），供后台线程状态变更后调用。
-     */
     public void requestGutterIconRefresh(PsiFile file) {
         if (file == null || !file.isValid()) return;
         scheduleGutterRefresh(file);
     }
 
-    // ==================== 生命周期 ====================
+    public void requestGutterIconRefresh(VirtualFile file) {
+        if (file == null || !file.isValid()) {
+            return;
+        }
+        PsiFile psiFile = com.intellij.openapi.application.ReadAction.compute(() -> PsiManager.getInstance(project).findFile(file));
+        if (psiFile != null) {
+            requestGutterIconRefresh(psiFile);
+        }
+    }
 
-    /**
-     * 项目启动时初始化
-     */
     public void initialize() {
         log.info("项目启动初始化");
         AuthManager.init();
@@ -236,46 +220,47 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    // ==================== 用户认证与设置同步 ====================
-
-    /**
-     * 用户登录后调用：恢复持久化设置，启动自动化任务。
-     */
     public void onUserLogin() {
         String username = AuthManager.getUsername();
         synchronized (scheduleLock) {
             this.userSettings = new UserSettingsManager(username);
             history.clear();
+            dirtyFiles.clear();
 
             applySettingsFromStoreLocked();
             setAutoCleanEnabledLocked(true);
         }
+        methodRefreshService.refreshAll(false);
         log.info("用户 {} 登录，已恢复设置", username);
     }
 
-    /**
-     * 用户登出时调用：保存设置，停止任务，清除数据。
-     */
     public void onUserLogout() {
         synchronized (scheduleLock) {
             saveCurrentSettingsLocked();
             setAutoUpdateEnabledLocked(false);
             setAutoCleanEnabledLocked(false);
             history.clear();
+            dirtyFiles.clear();
+            if (dirtyRefreshTask != null) {
+                dirtyRefreshTask.cancel(false);
+                dirtyRefreshTask = null;
+            }
             userSettings = null;
         }
         log.info("用户已登出，已清理资源");
     }
 
-    /**
-     * 服务端判定凭证失效时调用：执行登出 + 切换到登录界面。
-     */
     public void forceLogout() {
         synchronized (scheduleLock) {
             saveCurrentSettingsLocked();
             setAutoUpdateEnabledLocked(false);
             setAutoCleanEnabledLocked(false);
             history.clear();
+            dirtyFiles.clear();
+            if (dirtyRefreshTask != null) {
+                dirtyRefreshTask.cancel(false);
+                dirtyRefreshTask = null;
+            }
             userSettings = null;
         }
         AuthManager.clearAuth();
@@ -286,24 +271,15 @@ public final class PluginProjectService implements Disposable {
         log.info("强制登出完成");
     }
 
-    /**
-     * 更新全局选中模型并广播到所有项目。
-     */
     public void updateSelectedModel(String model) {
         if (model == null || model.isBlank()) return;
         updateUserSettingsAndBroadcast(settings -> settings.setSelectedModel(model));
     }
 
-    /**
-     * 更新全局 RAG 开关并广播到所有项目。
-     */
     public void updateRagEnabled(boolean enabled) {
         updateUserSettingsAndBroadcast(settings -> settings.setRagEnabled(enabled));
     }
 
-    /**
-     * 更新全局 RAG 示例数量（1-5）并广播到所有项目。
-     */
     public void updateRagExampleNum(int count) {
         int normalized = Math.max(1, Math.min(5, count));
         updateUserSettingsAndBroadcast(settings -> settings.setRagExampleNum(normalized));
@@ -316,11 +292,13 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    /**
-     * 更新全局自动更新开关并广播到所有项目。
-     */
     public void updateAutoUpdateEnabled(boolean enabled) {
-        updateUserSettingsAndBroadcast(settings -> settings.setAutoUpdateEnabled(enabled));
+        synchronized (scheduleLock) {
+            if (userSettings == null) return;
+            userSettings.setAutoUpdateEnabled(enabled);
+            setAutoUpdateEnabledLocked(enabled);
+        }
+        publishGlobalSettingsChanged();
     }
 
     public boolean isShowFullApiKeyEnabled() {
@@ -335,31 +313,20 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-
-    // ======================= 设置持久化 ====================
-    /**
-     * 保存当前运行时设置到持久化存储。
-     */
     public void saveCurrentSettings() {
         synchronized (scheduleLock) {
             saveCurrentSettingsLocked();
         }
     }
 
-    /**
-     * 保存当前运行时设置到持久化存储，必须在持有 scheduleLock 时调用
-     */
     private void saveCurrentSettingsLocked() {
         if (userSettings == null) return;
         userSettings.setSelectedModel(CommentGeneratorClient.getSelectedModel());
         userSettings.setRagEnabled(CommentGeneratorClient.isRagEnabled());
         userSettings.setRagExampleNum(CommentGeneratorClient.getRagExampleNum());
-        userSettings.setAutoUpdateEnabled(autoUpdateTask != null && !autoUpdateTask.isCancelled());
+        userSettings.setAutoUpdateEnabled(autoUpdateEnabled);
     }
 
-    /**
-     * 应用持久化存储的设置到当前运行时状态，必须在持有 scheduleLock 时调用
-     */
     private void applySettingsFromStoreLocked() {
         String model = userSettings.getSelectedModel();
         if (model != null && !model.isBlank()) {
@@ -370,11 +337,6 @@ public final class PluginProjectService implements Disposable {
         setAutoUpdateEnabledLocked(userSettings.isAutoUpdateEnabled());
     }
 
-
-    // ====================== 全局事件同步 ====================
-    /**
-     * 接收全局认证状态变更事件，并将当前项目同步到最新账号状态。
-     */
     public void syncAuthStateFromGlobal() {
         if (AuthManager.isLoggedIn()) {
             onUserLogin();
@@ -384,9 +346,6 @@ public final class PluginProjectService implements Disposable {
         invokeUiCallback(onAuthStateChangedCallback);
     }
 
-    /**
-     * 应用全局配置到当前项目（由应用级广播触发）。
-     */
     public void syncSettingsFromGlobal() {
         if (!AuthManager.isLoggedIn()) return;
         synchronized (scheduleLock) {
@@ -400,29 +359,21 @@ public final class PluginProjectService implements Disposable {
         invokeUiCallback(onGlobalSettingsChangedCallback);
     }
 
-    /**
-     * 在 UI 线程执行回调，供全局事件处理后通知 UI 层更新界面状态
-     */
     private void invokeUiCallback(Runnable callback) {
         if (callback != null) {
             ApplicationManager.getApplication().invokeLater(callback);
         }
     }
 
-    /**
-     * 更新用户设置并广播全局设置变更事件，供 UI 层调用
-     */
     private void updateUserSettingsAndBroadcast(Consumer<UserSettingsManager> updater) {
         synchronized (scheduleLock) {
             if (userSettings == null) return;
             updater.accept(userSettings);
+            applySettingsFromStoreLocked();
         }
         publishGlobalSettingsChanged();
     }
 
-    /**
-     * 通过应用级服务广播全局设置变更事件，通知其他项目同步最新设置。
-     */
     private void publishGlobalSettingsChanged() {
         PluginApplicationService appService =
                 ApplicationManager.getApplication().getService(PluginApplicationService.class);
@@ -431,9 +382,6 @@ public final class PluginProjectService implements Disposable {
         }
     }
 
-    /**
-     * 统一更新 API Key 相关 UI 状态（是否已配置 + 是否显示完整）并广播。
-     */
     public void updateApiKeyUiState(boolean configured, boolean showFull) {
         updateUserSettingsAndBroadcast(settings -> {
             settings.setApiKeyConfiguredHint(configured);
@@ -441,18 +389,16 @@ public final class PluginProjectService implements Disposable {
         });
     }
 
-    // ==================== 委托方法 ====================
-
     public void refreshAllMethodHistories() {
-        methodRefreshService.refreshAll();
+        methodRefreshService.refreshAll(true);
     }
 
     public void refreshFileMethodHistories(VirtualFile file) {
-        methodRefreshService.refreshFile(file);
+        methodRefreshService.refreshFile(file, true);
     }
 
     public void refreshMethodHistory(PsiMethod method) {
-        methodRefreshService.refreshMethod(method);
+        methodRefreshService.refreshMethod(method, true);
     }
 
     public void generateComment(PsiMethod method) {
@@ -463,22 +409,27 @@ public final class PluginProjectService implements Disposable {
         return methodRefreshService.preCheckChange(method);
     }
 
-    // ==================== 资源释放 ====================
+    public MethodStatus getCachedMethodStatus(PsiMethod method) {
+        return methodRefreshService.getCachedStatus(method);
+    }
 
     @Override
     public void dispose() {
         log.info("项目关闭，释放资源");
         synchronized (scheduleLock) {
             saveCurrentSettingsLocked();
-            setAutoUpdateEnabledLocked(false);
             setAutoCleanEnabledLocked(false);
+            dirtyFiles.clear();
+            if (dirtyRefreshTask != null) {
+                dirtyRefreshTask.cancel(false);
+                dirtyRefreshTask = null;
+            }
             if (autoScheduler != null) {
                 autoScheduler.shutdownNow();
                 autoScheduler = null;
             }
         }
-        // 取消所有待执行的 gutter 去抖任务
-        pendingRefreshes.values().forEach(f -> f.cancel(false));
-        pendingRefreshes.clear();
+        pendingGutterRefreshes.values().forEach(f -> f.cancel(false));
+        pendingGutterRefreshes.clear();
     }
 }

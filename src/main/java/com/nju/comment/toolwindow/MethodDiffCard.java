@@ -10,7 +10,6 @@ import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiElementFactory;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
@@ -19,6 +18,7 @@ import com.nju.comment.pojo.MethodRecord;
 import com.nju.comment.pojo.MethodStatus;
 import com.nju.comment.history.MethodHistoryManager;
 import com.nju.comment.service.PluginProjectService;
+import com.nju.comment.util.MethodRecordUtil;
 
 import javax.swing.*;
 import java.awt.*;
@@ -206,12 +206,7 @@ public class MethodDiffCard extends JPanel {
     // ==================== Card actions ====================
 
     private void onLocate() {
-        SmartPsiElementPointer<PsiMethod> pointer = record.getPointer();
-        if (pointer == null) {
-            Messages.showWarningDialog(project, "无法定位方法：记录中无指针", "定位失败");
-            return;
-        }
-        PsiMethod method = pointer.getElement();
+        PsiMethod method = MethodRecordUtil.resolveMethod(project, record);
         if (method != null) {
             method.navigate(true);
         } else {
@@ -234,11 +229,8 @@ public class MethodDiffCard extends JPanel {
     }
 
     private void onApply() {
-        SmartPsiElementPointer<PsiMethod> pointer = record.getPointer();
-        if (pointer == null) return;
-
         WriteCommandAction.runWriteCommandAction(project, () -> {
-            PsiMethod method = pointer.getElement();
+            PsiMethod method = MethodRecordUtil.resolveMethod(project, record);
             if (method == null) {
                 Messages.showWarningDialog(project, "无法应用注释：方法不存在", "应用失败");
                 return;
@@ -279,9 +271,7 @@ public class MethodDiffCard extends JPanel {
      * 通知 gutter 图标刷新，确保状态变更后图标即时更新。
      */
     private void requestGutterRefresh() {
-        SmartPsiElementPointer<PsiMethod> ptr = record.getPointer();
-        if (ptr == null) return;
-        PsiFile psiFile = ptr.getContainingFile();
+        PsiFile psiFile = MethodRecordUtil.resolvePsiFile(project, record.getFilePath());
         if (psiFile == null || !psiFile.isValid()) return;
         project.getService(PluginProjectService.class).requestGutterIconRefresh(psiFile);
     }

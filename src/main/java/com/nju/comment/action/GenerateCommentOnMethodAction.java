@@ -43,7 +43,7 @@ public class GenerateCommentOnMethodAction extends AnAction {
             return;
         }
 
-        if (!MethodValidationUtil.isValid(method)) {
+        if (!MethodValidationUtil.isQuicklyEligible(method)) {
             return;
         }
 
@@ -82,7 +82,7 @@ public class GenerateCommentOnMethodAction extends AnAction {
             PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
             if (method == null) return false;
 
-            if (!MethodValidationUtil.isValid(method)) {
+            if (!MethodValidationUtil.isQuicklyEligible(method)) {
                 return false;
             }
 
