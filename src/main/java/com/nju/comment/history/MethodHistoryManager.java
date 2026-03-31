@@ -82,15 +82,22 @@ public record MethodHistoryManager(MethodHistoryRepository repository, Project p
             CommentGeneratorClient.cancelForMethod(key, project);
         }
 
-        if (!allowGeneration
-                && (MethodStatus.NEW_METHOD_WITH_COMMENT.equals(result.state())
-                || MethodStatus.COMMENT_CHANGED.equals(result.state()))) {
-            return updateMethodHistoryAsync(snapshot, commentGeneratorAsync, false) || changed;
+        if (MethodStatus.NEW_METHOD_WITH_COMMENT.equals(result.state())
+                || MethodStatus.COMMENT_CHANGED.equals(result.state())) {
+            return updateMethodHistoryAsync(snapshot, commentGeneratorAsync, allowGeneration) || changed;
         }
 
         return changed;
     }
 
+    /**
+     * record 缓存的真正写入点
+     * <ul>
+     *     <li>更新 filePath</li>
+     *     <li>更新 validationResult</li>
+     *     <li>避免相同校验结果反复写入 record</li>
+     * </ul>
+     */
     private boolean applyValidation(MethodRecord record, MethodValidationResult validationResult, String filePath) {
         boolean changed = false;
         if (filePath != null && !filePath.equals(record.getFilePath())) {

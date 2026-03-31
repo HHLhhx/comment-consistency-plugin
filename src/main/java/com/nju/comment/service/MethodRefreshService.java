@@ -5,10 +5,7 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
-import com.intellij.psi.PsiMethod;
+import com.intellij.psi.*;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -34,40 +31,52 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
-import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
+/**
+ * 文件级方法快照构建器 + 状态更新执行器
+ */
 @Slf4j
 public class MethodRefreshService {
 
     private final Project project;
     private final MethodHistoryManager historyManager;
-    private final BooleanSupplier autoUpdateCheck;
     private final Consumer<PsiFile> gutterRefreshRequester;
     private final Semaphore refreshLimiter = new Semaphore(Constant.MAX_CONCURRENT_REFRESH);
     private final Set<String> inFlightFiles = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<String, Boolean> pendingFileRefreshes = new ConcurrentHashMap<>();
 
     public MethodRefreshService(Project project,
                                 MethodHistoryManager historyManager,
-                                BooleanSupplier autoUpdateCheck,
                                 Consumer<PsiFile> gutterRefreshRequester) {
         this.project = project;
         this.historyManager = historyManager;
-        this.autoUpdateCheck = autoUpdateCheck;
         this.gutterRefreshRequester = gutterRefreshRequester;
     }
 
+    /**
+     * 项目初始化时预热所有文件的状态缓存
+     */
     public void refreshAll(boolean allowGeneration) {
         DumbService.getInstance(project).runWhenSmart(() ->
                 ApplicationManager.getApplication().executeOnPooledThread(() -> doRefreshAll(allowGeneration)));
     }
 
+    /**
+     * 当前 dirty 文件的标准处理入口，负责：
+     * <ul>
+     *     <li>判断是不是有效 Java 文件</li>
+     *     <li>通过 inFlightFiles 避免重复处理</li>
+     *     <li>在后台线程里执行 doRefreshFile(...)</li>
+     * </ul>
+     */
     public void refreshFile(VirtualFile file, boolean allowGeneration) {
         if (file == null || !file.exists() || !"java".equalsIgnoreCase(file.getExtension())) {
             return;
         }
         String path = file.getPath();
         if (!inFlightFiles.add(path)) {
+            pendingFileRefreshes.merge(path, allowGeneration, Boolean::logicalOr);
             return;
         }
 
@@ -85,6 +94,10 @@ public class MethodRefreshService {
                             refreshLimiter.release();
                         }
                         inFlightFiles.remove(path);
+                        Boolean rerunAllowGeneration = pendingFileRefreshes.remove(path);
+                        if (rerunAllowGeneration != null && file.isValid()) {
+                            refreshFile(file, rerunAllowGeneration);
+                        }
                     }
                 }));
     }
@@ -161,6 +174,9 @@ public class MethodRefreshService {
         return MethodStatus.UNCHANGED;
     }
 
+    /**
+     * 供 gutter 和部分 UI 读取“已验证且未过期的缓存状态”
+     */
     public MethodStatus getCachedStatus(PsiMethod method) {
         if (!MethodValidationUtil.isQuicklyEligible(method)) {
             return null;
@@ -271,6 +287,9 @@ public class MethodRefreshService {
         }, allowGeneration);
     }
 
+    /**
+     * 提取当前版本下的“方法全景”
+     */
     private FileRefreshPayload buildFilePayload(VirtualFile file) {
         return ReadAction.compute(() -> {
             if (file == null || !file.isValid()) {
@@ -300,6 +319,13 @@ public class MethodRefreshService {
         return ReadAction.compute(() -> buildMethodSnapshotUnsafely(method));
     }
 
+    /**
+     * 对方法进行一次性抽取，生成 snapshot，同时完成：
+     * <ul>
+     *     <li>把方法当前文本和注释取出来</li>
+     *     <li>计算强校验结果</li>
+     * </ul>
+     */
     private MethodRefreshSnapshot buildMethodSnapshotUnsafely(PsiMethod method) {
         if (method == null || !method.isValid()) {
             return null;
@@ -313,7 +339,7 @@ public class MethodRefreshService {
 
         PsiDocComment docComment = method.getDocComment();
         String currentComment = docComment != null ? docComment.getText().trim() : "";
-        String currentMethod = MethodRecordUtil.getMethodTextWithoutComments(method);//自己改的，原调用getMethodTextWithoutCommentsUnsafely
+        String currentMethod = MethodRecordUtil.getMethodTextWithoutComments(method);
         MethodValidationResult validationResult = MethodValidationUtil.validateCompilable(method);
 
         return MethodRefreshSnapshot.builder()
@@ -377,8 +403,8 @@ public class MethodRefreshService {
         }
         PsiDocumentManager.getInstance(project).commitAllDocuments();
         var firstChild = method.getFirstChild();
-        while (firstChild instanceof com.intellij.psi.PsiComment
-                || firstChild instanceof com.intellij.psi.PsiWhiteSpace) {
+        while (firstChild instanceof PsiComment
+                || firstChild instanceof PsiWhiteSpace) {
             firstChild = firstChild.getNextSibling();
         }
         if (firstChild == null) {

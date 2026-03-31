@@ -46,8 +46,7 @@ public class UpdateCommentOnMethodAction extends AnAction {
             return;
         }
 
-        if (method == null
-                || MethodStatus.UNCHANGED.equals(service.preCheckChange(method))
+        if (MethodStatus.UNCHANGED.equals(service.preCheckChange(method))
                 || MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(service.preCheckChange(method))) {
             return;
         }
@@ -97,8 +96,7 @@ public class UpdateCommentOnMethodAction extends AnAction {
                 return false;
             }
 
-            return method != null
-                    && !MethodStatus.UNCHANGED.equals(service.preCheckChange(method))
+            return !MethodStatus.UNCHANGED.equals(service.preCheckChange(method))
                     && !MethodStatus.NEW_METHOD_WITHOUT_COMMENT.equals(service.preCheckChange(method));
         });
 

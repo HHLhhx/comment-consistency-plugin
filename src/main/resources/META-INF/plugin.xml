@@ -70,7 +70,7 @@ https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
                            displayType="BALLOON"
                            isLogByDefault="true"/>
         <codeInsight.lineMarkerProvider language="JAVA"
-                                        implementationClass="com.nju.comment.CachedCommentGutterIconProvider"/>
+                                        implementationClass="com.nju.comment.provider.CachedCommentGutterIconProvider"/>
     </extensions>
 
     <actions>

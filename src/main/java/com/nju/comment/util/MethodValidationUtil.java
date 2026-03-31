@@ -67,11 +67,6 @@ public final class MethodValidationUtil {
         return PsiTreeUtil.findChildOfType(method, PsiErrorElement.class) == null;
     }
 
-    @Deprecated
-    public static boolean isValid(PsiMethod method) {
-        return validateCompilable(method).isValid();
-    }
-
     public static MethodValidationResult validateCompilable(PsiMethod method) {
         long sourceStamp = MethodRecordUtil.getSourceStamp(method);
         if (method == null || !method.isValid()) {

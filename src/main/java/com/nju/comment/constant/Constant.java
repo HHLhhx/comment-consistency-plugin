@@ -8,6 +8,7 @@ public final class Constant {
     private  Constant() {
     }
 
+
     // UI refresh delays
     public static final int UI_REFRESH_INITIAL_DELAY_MS = 0;
     public static final int UI_REFRESH_DELAY_MS = 100;
@@ -16,9 +17,8 @@ public final class Constant {
     public static final int AUTO_DELETE_INITIAL_DELAY_MS = 3000;
     public static final int AUTO_DELETE_DELAY_MS = 3000;
 
-    // Auto update delays
-    public static final int AUTO_UPDATE_INITIAL_DELAY_MS = 3000;
-    public static final int AUTO_UPDATE_DELAY_MS = 1000;
+    // Dirty files refresh debounce time
+    public static final long DIRTY_REFRESH_DEBOUNCE_MS = 400L;
 
     // HTTP default settings
     public static final int HTTP_DEFAULT_THREAD_POOL_SIZE = 10;

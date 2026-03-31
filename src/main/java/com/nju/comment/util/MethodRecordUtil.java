@@ -142,6 +142,11 @@ public final class MethodRecordUtil {
 
     public static @NotNull String getMethodTextWithoutComments(PsiMethod method) {
         return ReadAction.compute(() -> {
+            PsiFile containingFile = method.getContainingFile();
+            if (containingFile == null) {
+                return "";
+            }
+
             PsiElement firstChild = method.getFirstChild();
             while (firstChild instanceof PsiComment ||
                     firstChild instanceof PsiWhiteSpace) {
@@ -152,7 +157,7 @@ public final class MethodRecordUtil {
             if (firstChild != null) {
                 int methodStartOffset = firstChild.getTextRange().getStartOffset();
                 int endOffset = method.getTextRange().getEndOffset();
-                mtd = method.getContainingFile().getText().substring(methodStartOffset, endOffset).trim();
+                mtd = containingFile.getText().substring(methodStartOffset, endOffset).trim();
             }
             return mtd;
         });

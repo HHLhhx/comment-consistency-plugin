@@ -1,4 +1,4 @@
-package com.nju.comment;
+package com.nju.comment.provider;
 
 import com.intellij.codeInsight.daemon.LineMarkerInfo;
 import com.intellij.codeInsight.daemon.LineMarkerProvider;
@@ -28,10 +28,6 @@ public class CachedCommentGutterIconProvider implements LineMarkerProvider {
     private static @Nullable GutterText resolveText(MethodStatus status) {
         if (status == null) return null;
         return switch (status) {
-            case COMMENT_CHANGED -> new GutterText(
-                    "检测到注释变更，点击更新",
-                    "检测到该方法的注释与历史版本不一致，是否确定以当前注释为准？",
-                    "确定");
             case METHOD_CHANGED -> new GutterText(
                     "检测到方法体变更，点击更新注释",
                     "检测到该方法的实现发生变化，是否更新注释？",
@@ -40,10 +36,6 @@ public class CachedCommentGutterIconProvider implements LineMarkerProvider {
                     "检测到新方法且缺少注释，点击生成注释",
                     "检测到新方法且缺少注释，是否为该方法生成注释？",
                     "生成");
-            case NEW_METHOD_WITH_COMMENT -> new GutterText(
-                    "检测到新方法，点击更新",
-                    "检测到新方法，是否确定将该方法加入注释一致性维护管理？",
-                    "确定");
             default -> null;
         };
     }
