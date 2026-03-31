@@ -17,7 +17,7 @@ https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
         HHLhhx
     </vendor>
 
-    <version>1.2.0</version>
+    <version>2.0.1</version>
 
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
          Guidelines:
@@ -36,6 +36,11 @@ https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>v2.0.1 (2026-03-31)</h3>
+        <ul>
+            <li>Refactor the underlying automatic update and method state refresh logic to improve performance and reduce the possibility of UI freezes</li>
+        </ul>
+
         <h3>v1.2.0 (2026-03-24)</h3>
         <ul>
             <li>Lowered the minimum supported IDEA version to 2022.3 (build 223) and aligned runtime compatibility with JDK 17</li>

@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.nju"
-version = "1.2.0"
+version = "2.0.1"
 
 repositories {
     mavenCentral()
@@ -61,7 +61,7 @@ intellijPlatform {
 
     publishing {
         token.set(System.getenv("PUBLISH_TOKEN"))
-        channels.set(listOf("stable"))
+        channels.set(listOf("beta"))
     }
 }
 
