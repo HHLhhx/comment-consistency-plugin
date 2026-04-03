@@ -61,7 +61,7 @@ intellijPlatform {
 
     publishing {
         token.set(System.getenv("PUBLISH_TOKEN"))
-        channels.set(listOf("beta"))
+        channels.set(listOf("stable"))
     }
 }
 

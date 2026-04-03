@@ -2,6 +2,8 @@ package com.nju.comment.service;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.notification.NotificationGroupManager;
+import com.intellij.notification.NotificationType;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -38,6 +40,8 @@ import java.util.function.Consumer;
  */
 @Slf4j
 public class MethodRefreshService {
+
+    private static final String NOTIFICATION_GROUP_ID = "Comment Consistency";
 
     private final Project project;
     private final MethodHistoryManager historyManager;
@@ -122,6 +126,7 @@ public class MethodRefreshService {
         record.setStatus(MethodStatus.GENERATING);
         record.touch();
         historyManager.save(record);
+        notifyProgress("正在为方法" + snapshot.getSignature() + "生成注释，请耐心等待");
         doProcessSnapshot(snapshot, getVirtualFile(method), true);
     }
 
@@ -255,7 +260,7 @@ public class MethodRefreshService {
                     .build();
 
             String methodKey = snapshot.getMethodKey();
-            CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {
+            boolean requestDispatched = CommentGeneratorClient.generateCommentAsync(methodKey, context, options, generatedComment -> {
                 if (generatedComment == null) return;
                 String processed = TextProcessUtil.processComment(generatedComment);
 
@@ -284,7 +289,21 @@ public class MethodRefreshService {
                     }
                 });
             }, project);
+
+            if (requestDispatched
+                    && MethodStatus.TO_BE_UPDATE.equals(status)
+                    && !project.getService(PluginProjectService.class).isAutoUpdateEnabled()) {
+                notifyProgress("正在为方法" + snapshot.getSignature() + "更新注释，请耐心等待");
+            }
         }, allowGeneration);
+    }
+
+    private void notifyProgress(String content) {
+        ApplicationManager.getApplication().invokeLater(() ->
+                NotificationGroupManager.getInstance()
+                        .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                        .createNotification("Comment Consistency", content, NotificationType.INFORMATION)
+                        .notify(project));
     }
 
     /**

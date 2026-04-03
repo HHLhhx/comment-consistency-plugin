@@ -155,8 +155,8 @@ public class CommentGeneratorClient {
      * @param options   生成选项
      * @param callback  异步回调，接收生成的注释文本（取消/跳过/失败时为null）
      */
-    public static void generateCommentAsync(String methodKey, MethodContext data, GenerateOptions options,
-                                            Consumer<String> callback, Project project) {
+    public static boolean generateCommentAsync(String methodKey, MethodContext data, GenerateOptions options,
+                                               Consumer<String> callback, Project project) {
         // 初始化检查
         initCheck();
 
@@ -186,7 +186,7 @@ public class CommentGeneratorClient {
             if (skipped[0]) {
                 log.info("方法 {} 已有相同内容的在途请求，跳过本次", methodKey);
                 callback.accept(null);
-                return;
+                return false;
             }
 
             // 在 compute 外取消旧记录（此时 map 中已是新占位，不会误取消）
@@ -276,6 +276,7 @@ public class CommentGeneratorClient {
                 callback.accept(null);
             }
         });
+        return true;
     }
 
     /**
@@ -489,7 +490,7 @@ public class CommentGeneratorClient {
             return client.saveApiKey(new ApiKeyRequest(encryptedApiKey));
         }).whenComplete((r, ex) -> {
             if (ex == null) {
-                cachedApiKey = apiKey;
+                cachedApiKey = maskApiKey(apiKey);
                 apiKeyLoaded = true;
             } else {
                 Throwable cause = ex.getCause();
@@ -500,6 +501,13 @@ public class CommentGeneratorClient {
                 }
             }
         });
+    }
+
+    private static String maskApiKey(String apiKey) {
+        if (apiKey == null || apiKey.length() <= 8) {
+            return "****";
+        }
+        return apiKey.substring(0, 4) + "********" + apiKey.substring(apiKey.length() - 4);
     }
 
     /**

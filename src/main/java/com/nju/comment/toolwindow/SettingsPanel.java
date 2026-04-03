@@ -90,7 +90,7 @@ public class SettingsPanel extends JPanel {
 
         // ---- API Key ----
         content.add(Box.createVerticalStrut(15));
-        content.add(sectionHeader("API Key"));
+        content.add(buildApiKeyHeader());
         content.add(Box.createVerticalStrut(8));
         content.add(buildApiKeySection());
         content.add(Box.createVerticalStrut(15));
@@ -401,6 +401,20 @@ public class SettingsPanel extends JPanel {
         label.setFont(label.getFont().deriveFont(Font.BOLD, 14f));
         label.setAlignmentX(LEFT_ALIGNMENT);
         return label;
+    }
+
+    private JComponent buildApiKeyHeader() {
+        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        header.setOpaque(false);
+        header.setAlignmentX(LEFT_ALIGNMENT);
+
+        JBLabel title = sectionHeader("API Key");
+        JBLabel hint = new JBLabel("（该项目目前仅支持ollama API key）");
+        hint.setForeground(JBColor.GRAY);
+
+        header.add(title);
+        header.add(hint);
+        return header;
     }
 
     private static String extractError(Throwable ex) {

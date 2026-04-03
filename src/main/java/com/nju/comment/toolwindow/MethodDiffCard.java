@@ -22,6 +22,8 @@ import com.nju.comment.util.MethodRecordUtil;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -46,7 +48,7 @@ public class MethodDiffCard extends JPanel {
     private static final Color BADGE_UPD_BG = new JBColor(new Color(255, 243, 205), new Color(92, 74, 27));
     private static final Color BADGE_UPD_FG = new JBColor(new Color(133, 100, 4), new Color(255, 214, 102));
 
-    private static final Font MONO_FONT = JBUI.Fonts.create(Font.MONOSPACED, 11);
+    private static final Font MONO_FONT = JBUI.Fonts.create(Font.MONOSPACED, 12);
 
     private final Project project;
     private final MethodRecord record;
@@ -132,42 +134,83 @@ public class MethodDiffCard extends JPanel {
         diffPanel.setBorder(JBUI.Borders.empty(4, 10));
         diffPanel.setOpaque(false);
 
-        int shown = Math.min(diffLines.size(), MAX_PREVIEW_LINES);
-        for (int i = 0; i < shown; i++) {
-            diffPanel.add(createDiffLineLabel(diffLines.get(i)));
+        if (diffLines.size() <= MAX_PREVIEW_LINES) {
+            for (DiffLine diffLine : diffLines) {
+                diffPanel.add(createDiffLineComponent(diffLine));
+            }
+            return diffPanel;
         }
 
-        if (diffLines.size() > MAX_PREVIEW_LINES) {
-            JBLabel more = new JBLabel("...... +" + (diffLines.size() - MAX_PREVIEW_LINES) + " lines");
-            more.setFont(more.getFont().deriveFont(Font.ITALIC, 10f));
-            more.setForeground(JBColor.GRAY);
-            more.setBorder(JBUI.Borders.emptyLeft(4));
-            diffPanel.add(more);
-        }
+        final boolean[] expanded = {false};
+        final Runnable[] refresh = new Runnable[1];
+
+        refresh[0] = () -> {
+            diffPanel.removeAll();
+
+            int shown = expanded[0] ? diffLines.size() : MAX_PREVIEW_LINES;
+            for (int i = 0; i < shown; i++) {
+                diffPanel.add(createDiffLineComponent(diffLines.get(i)));
+            }
+
+            int hidden = diffLines.size() - MAX_PREVIEW_LINES;
+            JBLabel toggle = new JBLabel(expanded[0] ? "收起" : "...... +" + hidden + " lines");
+            toggle.setFont(toggle.getFont().deriveFont(Font.ITALIC, 10f));
+            toggle.setForeground(new JBColor(new Color(3, 102, 214), new Color(88, 166, 255)));
+            toggle.setBorder(JBUI.Borders.empty(4, 4, 0, 4));
+            toggle.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            toggle.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    expanded[0] = !expanded[0];
+                    refresh[0].run();
+                }
+            });
+            diffPanel.add(toggle);
+
+            diffPanel.revalidate();
+            diffPanel.repaint();
+        };
+
+        refresh[0].run();
 
         return diffPanel;
     }
 
-    private static JLabel createDiffLineLabel(DiffLine line) {
-        JLabel label = new JLabel(line.text());
-        label.setFont(MONO_FONT);
-        label.setOpaque(true);
-        label.setBorder(JBUI.Borders.empty(1, 6));
-        label.setAlignmentX(LEFT_ALIGNMENT);
-        label.setMaximumSize(new Dimension(Integer.MAX_VALUE, label.getPreferredSize().height + 4));
+    private static JComponent createDiffLineComponent(DiffLine line) {
+        JTextArea textArea = new JTextArea(line.text()) {
+            @Override
+            public Dimension getPreferredSize() {
+                int availableWidth = getParent() != null ? getParent().getWidth() - JBUI.scale(2) : 0;
+                if (availableWidth <= 0) {
+                    return super.getPreferredSize();
+                }
+                setSize(new Dimension(availableWidth, Short.MAX_VALUE));
+                Dimension preferred = super.getPreferredSize();
+                return new Dimension(availableWidth, preferred.height);
+            }
+        };
+        textArea.setFont(MONO_FONT);
+        textArea.setOpaque(true);
+        textArea.setEditable(false);
+        textArea.setFocusable(false);
+        textArea.setLineWrap(true);
+        textArea.setWrapStyleWord(false);
+        textArea.setBorder(JBUI.Borders.empty(1, 6));
+        textArea.setAlignmentX(LEFT_ALIGNMENT);
+        textArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
         switch (line.type()) {
             case ADDED -> {
-                label.setBackground(BG_ADDED);
-                label.setForeground(FG_ADDED);
+                textArea.setBackground(BG_ADDED);
+                textArea.setForeground(FG_ADDED);
             }
             case REMOVED -> {
-                label.setBackground(BG_REMOVED);
-                label.setForeground(FG_REMOVED);
+                textArea.setBackground(BG_REMOVED);
+                textArea.setForeground(FG_REMOVED);
             }
-            default -> label.setOpaque(false);
+            default -> textArea.setOpaque(false);
         }
-        return label;
+        return textArea;
     }
 
     // ==================== Action buttons ====================
