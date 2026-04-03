@@ -3,6 +3,8 @@ package com.nju.comment.toolwindow;
 import com.intellij.diff.DiffContentFactory;
 import com.intellij.diff.DiffManager;
 import com.intellij.diff.requests.SimpleDiffRequest;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
@@ -10,9 +12,12 @@ import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiElementFactory;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
+import com.intellij.psi.SmartPointerManager;
+import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.ui.JBUI;
 import com.nju.comment.pojo.MethodRecord;
 import com.nju.comment.pojo.MethodStatus;
@@ -26,6 +31,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * 方法注释变更卡片。
@@ -241,7 +247,6 @@ public class MethodDiffCard extends JPanel {
 
     private static JButton smallButton(String text) {
         JButton btn = new JButton(text);
-        btn.setFont(btn.getFont().deriveFont(11f));
         btn.putClientProperty("JButton.buttonType", "borderless");
         return btn;
     }
@@ -249,12 +254,14 @@ public class MethodDiffCard extends JPanel {
     // ==================== Card actions ====================
 
     private void onLocate() {
-        PsiMethod method = MethodRecordUtil.resolveMethod(project, record);
-        if (method != null) {
-            method.navigate(true);
-        } else {
-            Messages.showWarningDialog(project, "无法定位方法：方法不存在", "定位失败");
-        }
+        resolveMethodPointerAsync(pointer -> {
+            PsiMethod method = pointer != null ? pointer.getElement() : null;
+            if (method != null && method.isValid()) {
+                method.navigate(true);
+            } else {
+                Messages.showWarningDialog(project, "无法定位方法：方法不存在", "定位失败");
+            }
+        });
     }
 
     private void onShowDiff() {
@@ -272,28 +279,47 @@ public class MethodDiffCard extends JPanel {
     }
 
     private void onApply() {
-        WriteCommandAction.runWriteCommandAction(project, () -> {
-            PsiMethod method = MethodRecordUtil.resolveMethod(project, record);
-            if (method == null) {
+        resolveMethodPointerAsync(pointer -> {
+            PsiMethod method = pointer != null ? pointer.getElement() : null;
+            if (method == null || !method.isValid()) {
                 Messages.showWarningDialog(project, "无法应用注释：方法不存在", "应用失败");
                 return;
             }
 
-            PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
-            PsiDocComment newComment = factory.createDocCommentFromText(record.getStagedComment());
-            PsiDocComment oldComment = method.getDocComment();
-            if (oldComment != null && oldComment.isValid()) {
-                oldComment.replace(newComment);
-            } else {
-                method.addBefore(newComment, method.getFirstChild());
-            }
+            WriteCommandAction.runWriteCommandAction(project, () -> {
+                PsiMethod targetMethod = pointer.getElement();
+                if (targetMethod == null || !targetMethod.isValid()) {
+                    Messages.showWarningDialog(project, "无法应用注释：方法不存在", "应用失败");
+                    return;
+                }
 
-            record.copyStagedToOldMethod();
-            record.copyStagedToOldComment();
-            record.clearStagedComment();
-            record.setStatus(MethodStatus.UNCHANGED);
-            historyManager.save(record);
+                PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
+                PsiDocComment newComment = factory.createDocCommentFromText(record.getStagedComment());
+                PsiDocComment oldComment = targetMethod.getDocComment();
+                if (oldComment != null && oldComment.isValid()) {
+                    oldComment.replace(newComment);
+                } else {
+                    targetMethod.addBefore(newComment, targetMethod.getFirstChild());
+                }
+
+                record.copyStagedToOldMethod();
+                record.copyStagedToOldComment();
+                record.clearStagedComment();
+                record.setStatus(MethodStatus.UNCHANGED);
+                historyManager.save(record);
+            });
         });
+    }
+
+    private void resolveMethodPointerAsync(Consumer<SmartPsiElementPointer<PsiMethod>> onResolved) {
+        ReadAction.nonBlocking(() -> {
+                    PsiMethod method = MethodRecordUtil.resolveMethod(project, record);
+                    return method != null ? SmartPointerManager.createPointer(method) : null;
+                })
+                .inSmartMode(project)
+                .expireWhen(project::isDisposed)
+                .finishOnUiThread(ModalityState.defaultModalityState(), onResolved)
+                .submit(AppExecutorUtil.getAppExecutorService());
     }
 
     private void onIgnore() {

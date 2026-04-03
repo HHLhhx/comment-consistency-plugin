@@ -92,6 +92,7 @@ public class LoginPanel extends JPanel {
         loginBtn = blueButton("登 录");
         JButton toRegBtn = new JButton("注 册");
         toRegBtn.setPreferredSize(new Dimension(100, 32));
+        toRegBtn.putClientProperty("JButton.buttonType", "borderless");
         toRegBtn.addActionListener(e -> {
             loginStatus.setText(" ");
             cardLayout.show(cardPanel, VIEW_REGISTER);
@@ -150,6 +151,7 @@ public class LoginPanel extends JPanel {
 
         sendCodeBtn = new JButton("发送验证码");
         sendCodeBtn.setPreferredSize(new Dimension(120, 34));
+        sendCodeBtn.putClientProperty("JButton.buttonType", "borderless");
         sendCodeBtn.addActionListener(e -> doSendCode());
 
         codePanel.add(regEmailCodeField);
@@ -166,6 +168,7 @@ public class LoginPanel extends JPanel {
 
         regBackBtn = new JButton("返 回");
         regBackBtn.setPreferredSize(new Dimension(100, 32));
+        regBackBtn.putClientProperty("JButton.buttonType", "borderless");
         regBackBtn.addActionListener(e -> {
             regStatus.setText(" ");
             cardLayout.show(cardPanel, VIEW_LOGIN);
@@ -389,6 +392,7 @@ public class LoginPanel extends JPanel {
 
     private static JButton blueButton(String text) {
         JButton btn = new JButton(text);
+        btn.putClientProperty("JButton.buttonType", "borderless");
         btn.setPreferredSize(new Dimension(100, 32));
         btn.setBackground(BLUE_BTN_BG);
         btn.setOpaque(true);

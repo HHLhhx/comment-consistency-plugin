@@ -112,7 +112,6 @@ public class MainPanel extends JPanel implements Disposable {
         settingsBtn.addActionListener(e -> onOpenSettings.run());
 
         JButton logoutBtn = new JButton("登出");
-        logoutBtn.setFont(logoutBtn.getFont().deriveFont(11f));
         logoutBtn.putClientProperty("JButton.buttonType", "borderless");
         logoutBtn.addActionListener(e -> CommentGeneratorClient.logout());
 
@@ -175,7 +174,6 @@ public class MainPanel extends JPanel implements Disposable {
         rightRow2.setOpaque(false);
 
         JButton updateAllBtn = new JButton("更新全部");
-        updateAllBtn.setFont(updateAllBtn.getFont().deriveFont(11f));
         updateAllBtn.setEnabled(!pluginService.isAutoUpdateEnabled());
         updateAllBtn.addActionListener(e -> {
             if (!pluginService.isAutoUpdateEnabled()) {
@@ -212,7 +210,6 @@ public class MainPanel extends JPanel implements Disposable {
         JButton btn = new JButton(icon);
         btn.setToolTipText(tooltip);
         btn.putClientProperty("JButton.buttonType", "borderless");
-        btn.setFont(btn.getFont().deriveFont(14f));
         btn.setPreferredSize(new Dimension(28, 28));
         return btn;
     }
