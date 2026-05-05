@@ -12,7 +12,6 @@ import com.nju.comment.service.AuthManager;
 import com.nju.comment.service.PluginProjectService;
 
 import java.awt.*;
-import java.net.URI;
 import javax.swing.*;
 
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +26,9 @@ public class SettingsPanel extends JPanel {
     private final Project project;
     private final PluginProjectService pluginService;
     private JBLabel currentKeyLabel;
+    private JBLabel currentBaseUrlLabel;
     private JBTextField newKeyField;
+    private JBTextField baseUrlField;
     private JButton saveKeyBtn;
     private JButton deleteKeyBtn;
     private JButton viewKeyBtn;
@@ -37,6 +38,7 @@ public class SettingsPanel extends JPanel {
     private boolean suppressAutoUpdateToggleEvent;
 
     private String currentApiKey;
+    private String currentBaseUrl;
     private boolean apiKeyLoaded;
     private boolean apiKeyConfiguredHint;
     private boolean showFullApiKey;
@@ -126,6 +128,7 @@ public class SettingsPanel extends JPanel {
         currentRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
 
         JBLabel keyIcon = new JBLabel("\uD83D\uDD11");
+        JBLabel keyPrefix = new JBLabel("API Key：");
         currentKeyLabel = new JBLabel(MASKED_API_KEY_TEXT);
         currentKeyLabel.setFont(JBUI.Fonts.create(Font.MONOSPACED, 12));
         viewKeyBtn = new JButton("查看");
@@ -134,6 +137,7 @@ public class SettingsPanel extends JPanel {
         viewKeyBtn.setEnabled(true);
 
         currentRow.add(keyIcon);
+        currentRow.add(keyPrefix);
         currentRow.add(currentKeyLabel);
         currentRow.add(viewKeyBtn);
         panel.add(currentRow);
@@ -151,37 +155,55 @@ public class SettingsPanel extends JPanel {
         panel.add(inputRow);
         panel.add(Box.createVerticalStrut(8));
 
+        // baseUrl 当前值显示（明文）
+        JPanel currentBaseUrlRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        currentBaseUrlRow.setOpaque(false);
+        currentBaseUrlRow.setAlignmentX(LEFT_ALIGNMENT);
+        currentBaseUrlRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+
+        JBLabel baseUrlIcon = new JBLabel("\uD83C\uDF10");
+        JBLabel baseUrlPrefix = new JBLabel("API 请求地址：");
+        currentBaseUrlLabel = new JBLabel("未设置");
+        currentBaseUrlLabel.setFont(JBUI.Fonts.create(Font.MONOSPACED, 12));
+        currentBaseUrlRow.add(baseUrlIcon);
+        currentBaseUrlRow.add(baseUrlPrefix);
+        currentBaseUrlRow.add(currentBaseUrlLabel);
+        panel.add(currentBaseUrlRow);
+        panel.add(Box.createVerticalStrut(10));
+
+        // baseUrl 输入（OpenAI 协议供应商需要）
+        JPanel baseUrlRow = new JPanel(new BorderLayout(8, 0));
+        baseUrlRow.setOpaque(false);
+        baseUrlRow.setAlignmentX(LEFT_ALIGNMENT);
+        baseUrlRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+
+        baseUrlField = new JBTextField();
+        baseUrlField.getEmptyText().setText("输入新的 Base URL，例如 https://api.openai.com");
+        baseUrlRow.add(baseUrlField, BorderLayout.CENTER);
+        panel.add(baseUrlRow);
+        panel.add(Box.createVerticalStrut(8));
+
         // 操作按钮
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         btnRow.setOpaque(false);
         btnRow.setAlignmentX(LEFT_ALIGNMENT);
 
-        saveKeyBtn = new JButton("保存 Key");
-        deleteKeyBtn = new JButton("删除 Key");
+        saveKeyBtn = new JButton("保存");
+        deleteKeyBtn = new JButton("删除");
         deleteKeyBtn.setForeground(JBColor.RED);
-
-        // 新增“申请api-key”按钮
-        JButton applyKeyBtn = new JButton("申请api-key");
-        applyKeyBtn.addActionListener(e -> {
-            try {
-                Desktop.getDesktop().browse(new URI("https://ollama.com/settings/keys"));
-            } catch (Exception ex) {
-                Messages.showErrorDialog("无法打开浏览器: " + ex.getMessage(), "错误");
-            }
-        });
 
         saveKeyBtn.addActionListener(e -> doSaveKey());
         deleteKeyBtn.addActionListener(e -> doDeleteKey());
 
         btnRow.add(saveKeyBtn);
         btnRow.add(deleteKeyBtn);
-        btnRow.add(applyKeyBtn);
         panel.add(btnRow);
 
         showFullApiKey = pluginService.isShowFullApiKeyEnabled();
         apiKeyConfiguredHint = pluginService.isApiKeyConfiguredHint();
         syncApiKeyCacheFromClient();
         renderApiKeyDisplay();
+        renderBaseUrlDisplay();
         syncApiKeyHintIfNeeded();
         return panel;
     }
@@ -242,7 +264,7 @@ public class SettingsPanel extends JPanel {
 
     private void fetchApiKeyForReveal() {
         CommentGeneratorClient.checkApiKey(project)
-                .thenAccept(apiKey ->
+                .thenAccept(info ->
                         ApplicationManager.getApplication().invokeLater(() -> {
                             syncApiKeyCacheFromClient();
                             if (currentApiKey == null || currentApiKey.isBlank()) {
@@ -251,6 +273,7 @@ public class SettingsPanel extends JPanel {
                                 applyApiKeyUiState(true, true);
                             }
                             renderApiKeyDisplay();
+                            renderBaseUrlDisplay();
                         }))
                 .exceptionally(ex -> {
                     log.warn("查询 API Key 失败");
@@ -292,22 +315,40 @@ public class SettingsPanel extends JPanel {
         viewKeyBtn.setEnabled(true);
     }
 
+    private void renderBaseUrlDisplay() {
+        if (currentBaseUrlLabel == null) return;
+        if (currentBaseUrl == null || currentBaseUrl.isBlank()) {
+            currentBaseUrlLabel.setText("未设置");
+            currentBaseUrlLabel.setForeground(JBColor.GRAY);
+            return;
+        }
+        currentBaseUrlLabel.setText(currentBaseUrl);
+        currentBaseUrlLabel.setForeground(JBColor.foreground());
+    }
+
     private void doSaveKey() {
         String key = newKeyField.getText().trim();
         if (key.isEmpty()) {
             Messages.showWarningDialog(project, "API Key 不能为空", "提示");
             return;
         }
+        String baseUrl = baseUrlField.getText().trim();
+        if (baseUrl.isEmpty()) {
+            Messages.showWarningDialog(project, "API 请求地址不能为空", "提示");
+            return;
+        }
 
         saveKeyBtn.setEnabled(false);
-        CommentGeneratorClient.saveApiKey(key, project)
+        CommentGeneratorClient.saveApiKey(key, baseUrl, project)
                 .thenRun(() -> ApplicationManager.getApplication().invokeLater(() -> {
                     saveKeyBtn.setEnabled(true);
                     newKeyField.setText("");
+                    baseUrlField.setText("");
                     syncApiKeyCacheFromClient();
                     applyApiKeyUiState(true, showFullApiKey);
                     renderApiKeyDisplay();
-                    Messages.showInfoMessage(project, "API Key 保存成功", "提示");
+                    renderBaseUrlDisplay();
+                    Messages.showInfoMessage(project, "API 配置保存成功", "提示");
                 }))
                 .exceptionally(ex -> {
                     String msg = extractError(ex);
@@ -321,7 +362,7 @@ public class SettingsPanel extends JPanel {
     }
 
     private void doDeleteKey() {
-        int confirm = Messages.showYesNoDialog(project, "确认删除当前 API Key？", "确认", Messages.getQuestionIcon());
+        int confirm = Messages.showYesNoDialog(project, "确认删除当前 API 配置？", "确认", Messages.getQuestionIcon());
         if (confirm != Messages.YES) return;
 
         deleteKeyBtn.setEnabled(false);
@@ -331,7 +372,8 @@ public class SettingsPanel extends JPanel {
                     syncApiKeyCacheFromClient();
                     applyApiKeyUiState(false, false);
                     renderApiKeyDisplay();
-                    Messages.showInfoMessage(project, "API Key 已删除", "提示");
+                    renderBaseUrlDisplay();
+                    Messages.showInfoMessage(project, "API 配置已删除", "提示");
                 }))
                 .exceptionally(ex -> {
                     String msg = extractError(ex);
@@ -362,25 +404,29 @@ public class SettingsPanel extends JPanel {
             }
         }
         renderApiKeyDisplay();
+        renderBaseUrlDisplay();
         syncApiKeyHintIfNeeded();
     }
 
     private void syncApiKeyHintIfNeeded() {
-        if (apiKeyHintSyncing || apiKeyLoaded || apiKeyConfiguredHint) {
+        if (apiKeyHintSyncing || apiKeyLoaded) {
             return;
         }
         apiKeyHintSyncing = true;
-        currentKeyLabel.setText("检测中...");
-        currentKeyLabel.setForeground(JBColor.GRAY);
-        viewKeyBtn.setEnabled(false);
+        if (!apiKeyConfiguredHint) {
+            currentKeyLabel.setText("检测中...");
+            currentKeyLabel.setForeground(JBColor.GRAY);
+            viewKeyBtn.setEnabled(false);
+        }
 
         CommentGeneratorClient.checkApiKeySilently()
-                .thenAccept(apiKey -> ApplicationManager.getApplication().invokeLater(() -> {
+                .thenAccept(info -> ApplicationManager.getApplication().invokeLater(() -> {
                     syncApiKeyCacheFromClient();
                     boolean configured = currentApiKey != null && !currentApiKey.isBlank();
                     boolean showFull = configured && showFullApiKey;
                     applyApiKeyUiState(configured, showFull);
                     renderApiKeyDisplay();
+                    renderBaseUrlDisplay();
                 }))
                 .whenComplete((r, ex) -> apiKeyHintSyncing = false);
     }
@@ -388,6 +434,7 @@ public class SettingsPanel extends JPanel {
     private void syncApiKeyCacheFromClient() {
         apiKeyLoaded = CommentGeneratorClient.isApiKeyLoaded();
         currentApiKey = CommentGeneratorClient.getCachedApiKey();
+        currentBaseUrl = CommentGeneratorClient.getCachedBaseUrl();
     }
 
     private void applyApiKeyUiState(boolean configured, boolean showFull) {
@@ -408,8 +455,8 @@ public class SettingsPanel extends JPanel {
         header.setOpaque(false);
         header.setAlignmentX(LEFT_ALIGNMENT);
 
-        JBLabel title = sectionHeader("API Key");
-        JBLabel hint = new JBLabel("（该项目目前仅支持ollama API key）");
+        JBLabel title = sectionHeader("API 配置");
+        JBLabel hint = new JBLabel("（支持兼容 OpenAI 协议的供应商）");
         hint.setForeground(JBColor.GRAY);
 
         header.add(title);

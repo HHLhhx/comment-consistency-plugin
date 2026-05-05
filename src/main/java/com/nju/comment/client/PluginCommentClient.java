@@ -10,6 +10,7 @@ import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.request.LoginRequest;
 import com.nju.comment.dto.request.RegisterRequest;
 import com.nju.comment.dto.request.SendEmailCodeRequest;
+import com.nju.comment.dto.response.ApiKeyInfoResponse;
 import com.nju.comment.dto.response.ApiResponse;
 import com.nju.comment.dto.response.AuthResponse;
 import com.nju.comment.dto.response.CommentResponse;
@@ -257,11 +258,14 @@ public class PluginCommentClient implements CommentClient {
     }
 
     @Override
-    public CompletableFuture<String> checkApiKey() {
+    public CompletableFuture<ApiKeyInfoResponse> checkApiKey() {
         return send("/settings/api-key", "GET", root -> {
             ApiResponse resp = checkResponse(root);
             JsonNode data = resp.getData();
-            return (data == null || data.isNull()) ? null : data.asText();
+            if (data == null || data.isNull()) {
+                return new ApiKeyInfoResponse(null, null);
+            }
+            return objectMapper.treeToValue(data, ApiKeyInfoResponse.class);
         });
     }
 

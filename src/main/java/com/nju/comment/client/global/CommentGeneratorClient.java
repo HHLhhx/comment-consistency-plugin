@@ -11,6 +11,7 @@ import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.request.LoginRequest;
 import com.nju.comment.dto.request.RegisterRequest;
 import com.nju.comment.dto.request.SendEmailCodeRequest;
+import com.nju.comment.dto.response.ApiKeyInfoResponse;
 import com.nju.comment.dto.response.AuthResponse;
 import com.nju.comment.dto.response.CommentResponse;
 import com.nju.comment.client.CommentClient;
@@ -79,10 +80,22 @@ public class CommentGeneratorClient {
     private static volatile String cachedApiKey = null;
 
     /**
+     * 应用级 Base URL 缓存
+     */
+    @Getter
+    private static volatile String cachedBaseUrl = null;
+
+    /**
      * API Key 是否已从后端加载过
      */
     @Getter
     private static volatile boolean apiKeyLoaded = false;
+
+    /**
+     * Base URL 是否已从后端加载过
+     */
+    @Getter
+    private static volatile boolean baseUrlLoaded = false;
 
     private static volatile String encryptionPublicKey;
 
@@ -422,7 +435,9 @@ public class CommentGeneratorClient {
                 }
                 AuthManager.saveAuth(r.getToken(), username);
                 cachedApiKey = null;
+                cachedBaseUrl = null;
                 apiKeyLoaded = false;
+                baseUrlLoaded = false;
             }
         });
     }
@@ -458,7 +473,9 @@ public class CommentGeneratorClient {
                         }
                         AuthManager.saveAuth(r.getToken(), canonicalUsername);
                         cachedApiKey = null;
+                        cachedBaseUrl = null;
                         apiKeyLoaded = false;
+                        baseUrlLoaded = false;
                     }
                 });
     }
@@ -474,24 +491,28 @@ public class CommentGeneratorClient {
         });
         AuthManager.clearAuth();
         cachedApiKey = null;
+        cachedBaseUrl = null;
         apiKeyLoaded = false;
+        baseUrlLoaded = false;
         log.info("已登出");
     }
 
     // ========================== 用户设置 ==========================
 
     /**
-     * 保存 API Key
+     * 保存 API Key 与对应的 baseUrl（OpenAI 协议供应商需要）
      */
-    public static CompletableFuture<Void> saveApiKey(String apiKey, Project project) {
+    public static CompletableFuture<Void> saveApiKey(String apiKey, String baseUrl, Project project) {
         initCheck();
         return ensureEncryptionKey().thenCompose(publicKey -> {
             String encryptedApiKey = RequestFieldEncryptor.encrypt(apiKey, publicKey);
-            return client.saveApiKey(new ApiKeyRequest(encryptedApiKey));
+            return client.saveApiKey(new ApiKeyRequest(encryptedApiKey, baseUrl));
         }).whenComplete((r, ex) -> {
             if (ex == null) {
                 cachedApiKey = maskApiKey(apiKey);
+                cachedBaseUrl = baseUrl;
                 apiKeyLoaded = true;
+                baseUrlLoaded = true;
             } else {
                 Throwable cause = ex.getCause();
                 if (cause instanceof BackendException be) {
@@ -511,14 +532,16 @@ public class CommentGeneratorClient {
     }
 
     /**
-     * 查询 API Key（返回完整 key，未设置时返回 null）
+     * 查询 API Key 与 Base URL（apiKey 为完整值；未设置时字段为 null）
      */
-    public static CompletableFuture<String> checkApiKey(Project project) {
+    public static CompletableFuture<ApiKeyInfoResponse> checkApiKey(Project project) {
         initCheck();
         return client.checkApiKey().whenComplete((r, ex) -> {
             if (ex == null) {
-                cachedApiKey = r;
+                cachedApiKey = r == null ? null : r.getApiKey();
+                cachedBaseUrl = r == null ? null : r.getBaseUrl();
                 apiKeyLoaded = true;
+                baseUrlLoaded = true;
             } else {
                 Throwable cause = ex.getCause();
                 if (cause instanceof BackendException be) {
@@ -533,12 +556,14 @@ public class CommentGeneratorClient {
     /**
      * 静默查询 API Key（仅用于启动/页面首次展示时对齐状态，不弹错误提示）。
      */
-    public static CompletableFuture<String> checkApiKeySilently() {
+    public static CompletableFuture<ApiKeyInfoResponse> checkApiKeySilently() {
         initCheck();
         return client.checkApiKey().whenComplete((r, ex) -> {
             if (ex == null) {
-                cachedApiKey = r;
+                cachedApiKey = r == null ? null : r.getApiKey();
+                cachedBaseUrl = r == null ? null : r.getBaseUrl();
                 apiKeyLoaded = true;
+                baseUrlLoaded = true;
             } else {
                 log.warn("静默查询 API Key 失败", ex);
             }
@@ -553,7 +578,9 @@ public class CommentGeneratorClient {
         return client.deleteApiKey().whenComplete((r, ex) -> {
             if (ex == null) {
                 cachedApiKey = null;
+                cachedBaseUrl = null;
                 apiKeyLoaded = true;
+                baseUrlLoaded = true;
             } else {
                 Throwable cause = ex.getCause();
                 if (cause instanceof BackendException be) {

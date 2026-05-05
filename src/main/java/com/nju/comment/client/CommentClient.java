@@ -5,6 +5,7 @@ import com.nju.comment.dto.request.CommentRequest;
 import com.nju.comment.dto.request.LoginRequest;
 import com.nju.comment.dto.request.RegisterRequest;
 import com.nju.comment.dto.request.SendEmailCodeRequest;
+import com.nju.comment.dto.response.ApiKeyInfoResponse;
 import com.nju.comment.dto.response.AuthResponse;
 import com.nju.comment.dto.response.CommentResponse;
 import com.nju.comment.dto.response.EncryptionKeyResponse;
@@ -32,7 +33,7 @@ public interface CommentClient {
 
     CompletableFuture<Void> saveApiKey(ApiKeyRequest request);
 
-    CompletableFuture<String> checkApiKey();
+    CompletableFuture<ApiKeyInfoResponse> checkApiKey();
 
     CompletableFuture<Void> deleteApiKey();
 
